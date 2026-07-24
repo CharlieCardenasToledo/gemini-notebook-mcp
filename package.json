@@ -1,10 +1,10 @@
 {
-  "name": "notebooklm-mcp",
+  "name": "gemini-notebook-mcp",
   "version": "2.0.0",
-  "description": "MCP server for Google NotebookLM — chat, source ingestion, audio overviews, citations, stdio + Streamable-HTTP transports.",
+  "description": "MCP server for Google Gemini Notebook (formerly NotebookLM) — chat, source ingestion, audio overviews, citations, stdio + Streamable-HTTP transports.",
   "type": "module",
   "bin": {
-    "notebooklm-mcp": "dist/index.js"
+    "gemini-notebook-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -26,18 +26,18 @@
     "mcp",
     "notebooklm",
     "gemini",
+    "gemini-notebook",
     "ai",
     "claude"
   ],
-  "author": "Gérôme Dexheimer <hello@geromedexheimer.de> (https://github.com/PleasePrompto)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PleasePrompto/notebooklm-mcp.git"
+    "url": "git+https://github.com/CharlieCardenasToledo/gemini-notebook-mcp.git"
   },
-  "homepage": "https://github.com/PleasePrompto/notebooklm-mcp#readme",
+  "homepage": "https://github.com/CharlieCardenasToledo/gemini-notebook-mcp#readme",
   "bugs": {
-    "url": "https://github.com/PleasePrompto/notebooklm-mcp/issues"
+    "url": "https://github.com/CharlieCardenasToledo/gemini-notebook-mcp/issues"
   },
   "files": [
     "dist",
