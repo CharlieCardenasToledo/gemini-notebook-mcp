@@ -117,7 +117,8 @@ export class BrowserSession {
       await randomDelay(2000, 3000);
 
       // Check if we need to login
-      const isAuthenticated = await this.authManager.validateCookiesExpiry(this.context);
+      const cookiesAreValid = await this.authManager.validateCookiesExpiry(this.context);
+      const isAuthenticated = cookiesAreValid && !this.isAuthenticationPage();
 
       if (!isAuthenticated) {
         log.warning(`  🔑 Session ${this.sessionId} needs authentication`);
@@ -216,6 +217,16 @@ export class BrowserSession {
     }
   }
 
+  private isAuthenticationPage(): boolean {
+    if (!this.page) return false;
+    try {
+      const url = new URL(this.page.url());
+      return url.hostname === "accounts.google.com" || /\/login(?:[/?#]|$)/i.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Ensure the session is authenticated, perform auto-login if needed
    */
@@ -230,12 +241,16 @@ export class BrowserSession {
     // Check cookie validity
     const isValid = await this.authManager.validateCookiesExpiry(this.context);
 
-    if (isValid) {
+    if (isValid && !this.isAuthenticationPage()) {
       log.success(`  ✅ Cookies valid`);
       return true;
     }
 
-    log.warning(`  ⚠️  Cookies expired or invalid`);
+    log.warning(
+      this.isAuthenticationPage()
+        ? `  ⚠️  Google redirected the browser to sign-in`
+        : `  ⚠️  Cookies expired or invalid`
+    );
 
     // Try to get valid auth state
     const statePath = await this.authManager.getValidStatePath();
@@ -252,7 +267,7 @@ export class BrowserSession {
 
       // Check if it worked
       const nowValid = await this.authManager.validateCookiesExpiry(this.context);
-      if (nowValid) {
+      if (nowValid && !this.isAuthenticationPage()) {
         log.success(`  ✅ Auth state loaded successfully`);
         return true;
       }
@@ -402,7 +417,9 @@ export class BrowserSession {
       const page = this.page!;
       // Ensure we're still authenticated
       await sendProgress?.("Verifying authentication...", 2, 5);
-      const isAuth = await this.authManager.validateCookiesExpiry(this.context);
+      const isAuth =
+        (await this.authManager.validateCookiesExpiry(this.context)) &&
+        !this.isAuthenticationPage();
       if (!isAuth) {
         log.warning(`  🔑 Session expired, re-authenticating...`);
         await sendProgress?.("Re-authenticating session...", 2, 5);
@@ -431,7 +448,9 @@ export class BrowserSession {
       log.info(`  ⌨️  Typing question with human-like behavior...`);
       await sendProgress?.("Typing question with human-like behavior...", 2, 5);
       await humanType(page, inputSelector, question, {
-        withTypos: true,
+        // Deliberate typos can survive UI correction and make the rendered
+        // user turn differ from the request we need to correlate.
+        withTypos: false,
         wpm: randomInt(config.typingWpmMin, config.typingWpmMax),
       });
 

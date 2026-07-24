@@ -21,11 +21,19 @@ const candidateDataDirs = [
   claudeDesktopDataDir,
 ].filter(Boolean);
 let dataDir;
+let activeNotebook;
 
 for (const candidate of candidateDataDirs) {
   try {
-    await fs.access(path.join(candidate, "library.json"));
+    const candidateLibrary = JSON.parse(
+      await fs.readFile(path.join(candidate, "library.json"), "utf8")
+    );
+    const candidateNotebook = candidateLibrary.notebooks?.find(
+      (notebook) => notebook.id === candidateLibrary.active_notebook_id
+    );
+    if (!candidateNotebook) continue;
     dataDir = candidate;
+    activeNotebook = candidateNotebook;
     break;
   } catch {
     // Try the next known host-specific data location.
@@ -38,27 +46,42 @@ if (!dataDir) {
 
 const libraryPath = path.join(dataDir, "library.json");
 const statePath = path.join(dataDir, "browser_state", "state.json");
-const library = JSON.parse(await fs.readFile(libraryPath, "utf8"));
-const activeNotebook = library.notebooks.find(
-  (notebook) => notebook.id === library.active_notebook_id
-);
 
 if (!activeNotebook) {
   throw new Error(`No active notebook found in ${libraryPath}`);
 }
 
 let browser;
-try {
-  browser = await chromium.launch({ channel: "chrome", headless: true });
-} catch {
-  browser = await chromium.launch({ headless: true });
+let context;
+const profileDir = process.env.NOTEBOOKLM_PROFILE_DIR;
+
+if (profileDir) {
+  try {
+    context = await chromium.launchPersistentContext(profileDir, {
+      channel: "chrome",
+      headless: true,
+      viewport: CONFIG.viewport,
+    });
+  } catch {
+    context = await chromium.launchPersistentContext(profileDir, {
+      headless: true,
+      viewport: CONFIG.viewport,
+    });
+  }
+} else {
+  try {
+    browser = await chromium.launch({ channel: "chrome", headless: true });
+  } catch {
+    browser = await chromium.launch({ headless: true });
+  }
+
+  context = await browser.newContext({
+    storageState: statePath,
+    viewport: CONFIG.viewport,
+  });
 }
 
-const context = await browser.newContext({
-  storageState: statePath,
-  viewport: CONFIG.viewport,
-});
-const page = await context.newPage();
+const page = context.pages()[0] ?? (await context.newPage());
 
 function compactText(value, maxLength = 240) {
   return value.replace(/\s+/g, " ").trim().slice(0, maxLength);
@@ -224,10 +247,25 @@ try {
     waitUntil: "domcontentloaded",
     timeout: 60_000,
   });
-  await page.waitForSelector("textarea.query-box-input", {
-    state: "visible",
-    timeout: 60_000,
-  });
+  try {
+    await page.waitForSelector("textarea.query-box-input", {
+      state: "visible",
+      timeout: 60_000,
+    });
+  } catch (error) {
+    console.error(
+      JSON.stringify(
+        {
+          diagnostic: "chat-input-not-found",
+          url: page.url(),
+          title: await page.title().catch(() => ""),
+        },
+        null,
+        2
+      )
+    );
+    throw error;
+  }
 
   const before = await settleChatHistory();
   const latestAnswerLocator = page.locator(".to-user-container:last-of-type .message-text-content");
@@ -353,5 +391,5 @@ try {
   }
 } finally {
   await context.close();
-  await browser.close();
+  await browser?.close();
 }

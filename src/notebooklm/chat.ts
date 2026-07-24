@@ -18,6 +18,7 @@
 import type { Page } from "patchright";
 import { Selectors } from "./selectors.js";
 import { isRecoverable, pageIsAlive, safeSleep } from "../browser/watchdog.js";
+import { log } from "../utils/logger.js";
 
 /**
  * Loading-state phrases NotebookLM streams into the answer container before
@@ -172,9 +173,30 @@ const RATE_LIMIT_MESSAGES = [
   "1日あたりの上限に達しました",
 ];
 
-function isPlaceholder(text: string): boolean {
+const THINKING_TITLE = /^[A-Z][a-z]+ing\b[^\n.!?。？！]{0,60}$/;
+const THINKING_FIRST_PERSON =
+  /\b(?:I['’]?m|I['’]?ll|I['’]?ve|I will|I am|I need to|I want to|My (?:immediate |current |next |primary |main )?(?:task|aim|goal|plan|approach|focus|objective|step)|Let me)\b/;
+const THINKING_OPENER =
+  /^(?:I['’]?m|I['’]?ll|I will|I am|My (?:next|immediate|current|primary|main)\s+(?:task|aim|goal|plan|step|focus))\b/i;
+
+/**
+ * Secondary guard for Gemini extended-thinking prose. Completion controls are
+ * the primary signal, but this protects compatibility fallbacks and older UI
+ * layouts where `.message-actions` may not be available.
+ */
+export function isThinkingStep(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const firstLine = trimmed.split("\n", 1)[0].trim();
+  const gerundHeader = THINKING_TITLE.test(firstLine) && firstLine.split(/\s+/).length <= 7;
+
+  return (gerundHeader && THINKING_FIRST_PERSON.test(trimmed)) || THINKING_OPENER.test(firstLine);
+}
+
+export function isPlaceholder(text: string): boolean {
   const lower = text.toLowerCase();
   if (PLACEHOLDER_SNIPPETS.some((s) => lower.includes(s))) return true;
+  if (isThinkingStep(text)) return true;
   // Short text ending with "..." is almost certainly a loading indicator;
   // real responses run well past 50 chars.
   if (text.length < 50 && text.trim().endsWith("...")) return true;
@@ -225,6 +247,35 @@ export function normalizeChatText(text: string): string {
   return text.normalize("NFKC").replace(/\s+/g, " ").trim();
 }
 
+function correlationText(text: string): string {
+  return normalizeChatText(text)
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function chatTextsMatch(rendered: string, submitted: string): boolean {
+  const renderedNormalized = normalizeChatText(rendered);
+  const submittedNormalized = normalizeChatText(submitted);
+  if (renderedNormalized === submittedNormalized) return true;
+
+  const renderedCorrelation = correlationText(renderedNormalized);
+  const submittedCorrelation = correlationText(submittedNormalized);
+  if (renderedCorrelation === submittedCorrelation) return true;
+
+  const renderedTokens = new Set(renderedCorrelation.split(" ").filter(Boolean));
+  const submittedTokens = new Set(submittedCorrelation.split(" ").filter(Boolean));
+  if (Math.min(renderedTokens.size, submittedTokens.size) < 4) return false;
+
+  let overlap = 0;
+  for (const token of renderedTokens) {
+    if (submittedTokens.has(token)) overlap++;
+  }
+  return overlap / Math.max(renderedTokens.size, submittedTokens.size) >= 0.75;
+}
+
 /**
  * Pure turn-selection helper used by tests and the DOM extraction path.
  * A stable but incomplete Gemini reasoning card is deliberately rejected.
@@ -238,7 +289,7 @@ export function findCompletedTurnAnswer(
 
   for (let index = 0; index < messages.length; index++) {
     const message = messages[index];
-    if (message.role === "user" && normalizeChatText(message.text) === expected) {
+    if (message.role === "user" && chatTextsMatch(message.text, expected)) {
       userIndex = index;
     }
   }
@@ -352,6 +403,7 @@ export async function waitForStableAnswer(
   let stableStreak = 0;
   let pollCount = 0;
   let sawGeneration = false;
+  let previousStateSignature = "";
 
   while (Date.now() < deadline && pollCount < maxPolls) {
     pollCount++;
@@ -379,9 +431,28 @@ export async function waitForStableAnswer(
 
     sawGeneration ||= state.generating;
     const candidate = state.text;
+    const stateSignature = [
+      state.userFound,
+      Boolean(candidate),
+      candidate?.length ?? 0,
+      state.complete,
+      state.generating,
+    ].join("|");
+    if (stateSignature !== previousStateSignature) {
+      log.debug(
+        `  Chat turn state: user=${state.userFound}, answer=${Boolean(candidate)}, ` +
+          `length=${candidate?.length ?? 0}, complete=${state.complete}, ` +
+          `generating=${state.generating}`
+      );
+      previousStateSignature = stateSignature;
+    }
+
     if (candidate) {
       const isEcho = normalizeChatText(candidate).toLowerCase() === echoText;
-      const isPrior = ignoreSet.has(candidate);
+      // Prior-text filtering is only for the legacy uncorrelated fallback.
+      // A completed answer for an exact user turn may legitimately repeat an
+      // earlier answer (for example two marker queries that both return "YES").
+      const isPrior = !question && ignoreSet.has(candidate);
 
       if (!isEcho && !isPrior) {
         // Loading placeholders ("Parsing the data…", "Thinking…", …) are
@@ -443,48 +514,92 @@ async function readAnswerForQuestion(page: Page, question: string): Promise<Turn
   try {
     const match = await messages.evaluateAll((elements, expectedText) => {
       const normalize = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim();
+      const correlate = (value: string) =>
+        normalize(value)
+          .normalize("NFKD")
+          .replace(/\p{M}/gu, "")
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}]+/gu, " ")
+          .trim();
+      const matches = (rendered: string, submitted: string) => {
+        const normalizedRendered = normalize(rendered);
+        if (normalizedRendered === submitted) return true;
+
+        const renderedCorrelation = correlate(normalizedRendered);
+        const submittedCorrelation = correlate(submitted);
+        if (renderedCorrelation === submittedCorrelation) return true;
+
+        const renderedTokens = new Set(renderedCorrelation.split(" ").filter(Boolean));
+        const submittedTokens = new Set(submittedCorrelation.split(" ").filter(Boolean));
+        if (Math.min(renderedTokens.size, submittedTokens.size) < 4) return false;
+
+        let overlap = 0;
+        for (const token of renderedTokens) {
+          if (submittedTokens.has(token)) overlap++;
+        }
+        return overlap / Math.max(renderedTokens.size, submittedTokens.size) >= 0.75;
+      };
+      const extractText = (textElement: Element) => {
+        const clone = textElement.cloneNode(true) as HTMLElement;
+
+        clone.querySelectorAll("button.citation-marker").forEach((button) => {
+          const label = (button.textContent || "").trim();
+          button.replaceWith(document.createTextNode(/^\d+$/.test(label) ? `[${label}]` : ""));
+        });
+
+        clone.querySelectorAll("ul, ol").forEach((list) => {
+          const directItems = Array.from(list.querySelectorAll("li")).filter(
+            (item) => item.closest("ul, ol") === list
+          );
+          directItems.forEach((item, index) => {
+            const prefix = list.tagName === "OL" ? `${index + 1}. ` : "- ";
+            item.prepend(document.createTextNode(prefix));
+          });
+        });
+
+        const wrapper = document.createElement("div");
+        wrapper.style.cssText =
+          "position:fixed;left:-100000px;top:0;width:800px;visibility:visible";
+        wrapper.appendChild(clone);
+        document.body.appendChild(wrapper);
+        const text = clone.innerText;
+        wrapper.remove();
+        return text;
+      };
       let userIndex = -1;
 
       for (let index = 0; index < elements.length; index++) {
         const user = elements[index].querySelector(".from-user-container");
-        if (user && normalize((user as HTMLElement).innerText) === expectedText) {
+        if (user && matches((user as HTMLElement).innerText, expectedText)) {
           userIndex = index;
         }
       }
 
       if (userIndex < 0) {
-        return { userFound: false, answerIndex: -1, complete: false };
+        return { userFound: false, text: null, complete: false };
       }
 
       for (let index = userIndex + 1; index < elements.length; index++) {
         if (elements[index].querySelector(".from-user-container")) break;
         const answer = elements[index].querySelector(".to-user-container");
         if (answer) {
+          const textElement = answer.querySelector(".message-text-content");
           return {
             userFound: true,
-            answerIndex: index,
+            text: textElement ? extractText(textElement) : null,
             complete: Boolean(answer.querySelector(".message-actions")),
           };
         }
       }
 
-      return { userFound: true, answerIndex: -1, complete: false };
+      return { userFound: true, text: null, complete: false };
     }, expected);
 
     const generating = await isGenerating(page);
-    if (match.answerIndex < 0) {
-      return { userFound: match.userFound, text: null, complete: false, generating };
-    }
-
-    const textElement = messages
-      .nth(match.answerIndex)
-      .locator(".to-user-container .message-text-content")
-      .first();
-    const raw = await readFormattedAnswer(textElement);
-    const cleaned = sanitizeAnswer(raw);
+    const cleaned = match.text ? sanitizeAnswer(match.text) : "";
 
     return {
-      userFound: true,
+      userFound: match.userFound,
       text: cleaned || null,
       complete: match.complete && !generating,
       generating,
