@@ -1,6 +1,6 @@
 # Gemini Notebook MCP Server
 
-[![npm](https://img.shields.io/npm/v/gemini-notebook-mcp.svg)](https://www.npmjs.com/package/gemini-notebook-mcp)
+[![npm](https://img.shields.io/npm/v/@charlie.act7/gemini-notebook-mcp.svg)](https://www.npmjs.com/package/@charlie.act7/gemini-notebook-mcp)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-Streamable--HTTP-green.svg)](https://modelcontextprotocol.io/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -31,7 +31,7 @@ MCP server for Google Gemini Notebook (formerly known as NotebookLM). It drives 
 - **Chrome** (stable channel) preferred. The bundled Patchright Chromium is used as a fallback when Chrome refuses to launch — set `BROWSER_CHANNEL=chromium` to force it.
 - **Linux / macOS / Windows.**
 - **WSL2 + WSLg** (Windows 11+) is fully supported. WSL1 cannot launch a Chromium and is not supported — upgrade to WSL2.
-- **Headless Linux servers**: the one-time `setup_auth` needs a display because the login flow opens a visible window. Run it once under `xvfb-run` (`xvfb-run -a npx gemini-notebook-mcp`). After login, the persistent Chrome profile lets every subsequent run go fully headless.
+- **Headless Linux servers**: the one-time `setup_auth` needs a display because the login flow opens a visible window. Run it once under `xvfb-run` (`xvfb-run -a npx @charlie.act7/gemini-notebook-mcp`). After login, the persistent Chrome profile lets every subsequent run go fully headless.
 
 ---
 
@@ -40,7 +40,7 @@ MCP server for Google Gemini Notebook (formerly known as NotebookLM). It drives 
 ### Published package
 
 ```bash
-npx gemini-notebook-mcp@latest
+npx @charlie.act7/gemini-notebook-mcp@latest
 ```
 
 This is the recommended path for end users. `npx` keeps the binary cached and self-updates on `@latest`.
@@ -64,7 +64,7 @@ The `prepare` script also runs `npm run build`, so a fresh `npm install` produce
 CLI form:
 
 ```bash
-claude mcp add gemini-notebook -- npx gemini-notebook-mcp@latest
+claude mcp add gemini-notebook -- npx @charlie.act7/gemini-notebook-mcp@latest
 # or, from a local clone:
 claude mcp add gemini-notebook -- node /absolute/path/to/gemini-notebook-mcp/dist/index.js
 ```
@@ -76,7 +76,7 @@ Manual form — drop into `~/.claude.json`:
   "mcpServers": {
     "gemini-notebook": {
       "command": "npx",
-      "args": ["gemini-notebook-mcp@latest"]
+      "args": ["@charlie.act7/gemini-notebook-mcp@latest"]
     }
   }
 }
@@ -95,7 +95,7 @@ For a local build, replace `command`/`args` with `"command": "node"`, `"args": [
   "mcpServers": {
     "gemini-notebook": {
       "command": "npx",
-      "args": ["gemini-notebook-mcp@latest"]
+      "args": ["@charlie.act7/gemini-notebook-mcp@latest"]
     }
   }
 }
@@ -104,12 +104,12 @@ For a local build, replace `command`/`args` with `"command": "node"`, `"args": [
 ### Codex CLI
 
 ```bash
-codex mcp add gemini-notebook npx gemini-notebook-mcp@latest
+codex mcp add gemini-notebook npx @charlie.act7/gemini-notebook-mcp@latest
 ```
 
 ### Generic MCP client (stdio)
 
-Any client that can spawn an MCP server over stdio can use the same `npx gemini-notebook-mcp@latest` invocation. The server speaks MCP 2025 + the SDK's `Server` capability set (`tools`, `resources`, `prompts`, `completions`, `logging`).
+Any client that can spawn an MCP server over stdio can use the same `npx @charlie.act7/gemini-notebook-mcp@latest` invocation. The server speaks MCP 2025 + the SDK's `Server` capability set (`tools`, `resources`, `prompts`, `completions`, `logging`).
 
 ### HTTP-only clients (n8n, Zapier, Make, hosted agents)
 
@@ -146,15 +146,15 @@ The server speaks MCP over either stdio or Streamable-HTTP.
 ### stdio (default)
 
 ```bash
-npx gemini-notebook-mcp@latest
+npx @charlie.act7/gemini-notebook-mcp@latest
 ```
 
 ### Streamable-HTTP
 
 ```bash
-npx gemini-notebook-mcp@latest --transport http --port 3000
+npx @charlie.act7/gemini-notebook-mcp@latest --transport http --port 3000
 # Binding outside localhost requires a bearer token:
-NOTEBOOKLM_HTTP_AUTH_TOKEN="replace-with-a-long-random-token" npx gemini-notebook-mcp@latest --transport http --port 3000 --host 0.0.0.0
+NOTEBOOKLM_HTTP_AUTH_TOKEN="replace-with-a-long-random-token" npx @charlie.act7/gemini-notebook-mcp@latest --transport http --port 3000 --host 0.0.0.0
 ```
 
 Equivalent env vars: `NOTEBOOKLM_TRANSPORT=http`, `NOTEBOOKLM_PORT=3000`, `NOTEBOOKLM_HOST=0.0.0.0`.
@@ -183,10 +183,10 @@ clients use; both variables accept comma-separated values.
 Run distinct Chrome profiles for different Google accounts:
 
 ```bash
-npx gemini-notebook-mcp@latest --account work
-npx gemini-notebook-mcp@latest --account personal
+npx @charlie.act7/gemini-notebook-mcp@latest --account work
+npx @charlie.act7/gemini-notebook-mcp@latest --account personal
 # or via env:
-NOTEBOOKLM_ACCOUNT=work npx gemini-notebook-mcp@latest
+NOTEBOOKLM_ACCOUNT=work npx @charlie.act7/gemini-notebook-mcp@latest
 ```
 
 Each account gets its own subtree under `<dataDir>/accounts/<name>/` — separate cookies, separate `chrome_profile`, separate auth state. Account names must match `[a-z0-9][a-z0-9-_]{0,30}`. The first run for a new account requires its own `setup_auth`.
@@ -262,22 +262,22 @@ Profiles trim the tool list to keep host-agent context budgets in check.
 Set the profile persistently:
 
 ```bash
-npx gemini-notebook-mcp config set profile minimal
-npx gemini-notebook-mcp config get
+npx @charlie.act7/gemini-notebook-mcp config set profile minimal
+npx @charlie.act7/gemini-notebook-mcp config get
 ```
 
 Override per-process via env var:
 
 ```bash
-NOTEBOOKLM_PROFILE=standard npx gemini-notebook-mcp@latest
+NOTEBOOKLM_PROFILE=standard npx @charlie.act7/gemini-notebook-mcp@latest
 ```
 
 Disable specific tools regardless of profile:
 
 ```bash
-npx gemini-notebook-mcp config set disabled-tools cleanup_data,re_auth
+npx @charlie.act7/gemini-notebook-mcp config set disabled-tools cleanup_data,re_auth
 # or
-NOTEBOOKLM_DISABLED_TOOLS=cleanup_data,re_auth npx gemini-notebook-mcp@latest
+NOTEBOOKLM_DISABLED_TOOLS=cleanup_data,re_auth npx @charlie.act7/gemini-notebook-mcp@latest
 ```
 
 Settings are persisted in `<configDir>/settings.json` (XDG/`%APPDATA%` location, see config.ts).
