@@ -374,7 +374,15 @@ export const Selectors = {
   },
 
   notebooks: {
-    projectCard: 'button[aria-labelledby*="project-"]',
+    /**
+     * Notebook card on the home grid (notebook.google.com). Verified live
+     * 2026-07-29: an `<a role="link">`, not a `<button>` — its `href`
+     * (`/notebook/<uuid>`) is the real notebook id, and its
+     * `aria-labelledby`/`aria-describedby` point at `project-<id>-title` /
+     * `project-<id>-subtitle` spans holding the visible name and the
+     * "date · N sources" line.
+     */
+    projectCard: 'a.primary-action-button[href*="/notebook/"]',
     cardMenuButton: [
       'button[aria-label*="menu" i]',
       'button[aria-label*="options" i]',

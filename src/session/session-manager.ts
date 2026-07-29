@@ -21,13 +21,11 @@ import type { SessionInfo } from "../types.js";
 import { randomBytes } from "crypto";
 import { normalizeNotebookUrl } from "../notebooklm/url.js";
 import { Selectors } from "../notebooklm/selectors.js";
-import { randomDelay } from "../utils/stealth-utils.js";
 
 const NOTEBOOKLM_HOME_URL = "https://notebook.google.com/";
-const NOTEBOOK_URL_ID_PATTERN = /\/notebook\/([a-zA-Z0-9_-]+)\/?/;
 
 export interface AccountNotebookSummary {
-  /** Real Google notebook id, taken from the URL after opening the card. */
+  /** Real Google notebook id, read from the card's href. */
   id: string;
   name: string;
   url: string;
@@ -250,12 +248,12 @@ export class SessionManager {
    * (a locally curated bookmark list), this reflects reality: every notebook
    * the user created, whether or not it was ever registered with `add_notebook`.
    *
-   * The card DOM (`Selectors.notebooks.projectCard`) does not expose the real
-   * notebook id as a stable, documented attribute, so instead of guessing at
-   * one, each card is opened and the id is read back from the resulting URL
-   * (`/notebook/<id>`) — the same format already validated in `url.ts`. This
-   * is slower than a single DOM read (one navigation per notebook) but never
-   * returns a fabricated id.
+   * Verified live against the real 2026-07 layout: each card is an
+   * `<a role="link" class="primary-action-button" href="/notebook/<uuid>">`,
+   * whose `aria-labelledby`/`aria-describedby` point at
+   * `project-<uuid>-title` / `project-<uuid>-subtitle` spans holding the
+   * visible name and the "date · N sources" line. The id comes straight from
+   * `href` — no need to click through and read it back from the URL.
    */
   async listAccountNotebooks(): Promise<AccountNotebookSummary[]> {
     const context = await this.sharedContextManager.getOrCreateContext();
@@ -263,67 +261,51 @@ export class SessionManager {
     const timeout = getRuntimeConfig().browserTimeout;
     try {
       await page.goto(NOTEBOOKLM_HOME_URL, { waitUntil: "domcontentloaded", timeout });
-      await randomDelay(1500, 2500);
       if (/accounts\.google\.com/i.test(page.url())) {
         throw new Error(
           "NotebookLM MCP no está autenticado. Ejecuta setup_auth antes de listar los notebooks de la cuenta."
         );
       }
 
+      // Angular hydrates the grid after domcontentloaded (same class of race
+      // already documented for the chat page).
       const cardSelector = Selectors.notebooks.projectCard;
-      const cardCount = await page
-        .locator(cardSelector)
-        .count()
-        .catch(() => 0);
-      if (cardCount === 0) {
+      try {
+        await page.waitForSelector(cardSelector, { timeout: 12000 });
+      } catch {
+        const title = await page.title().catch(() => "");
+        const bodySnippet = await page
+          .evaluate(() => document.body.innerText.slice(0, 800))
+          .catch(() => "");
+        log.warning(
+          `  🔍 [list_account_notebooks] No cards matched ${cardSelector}. url=${page.url()} title="${title}"`
+        );
+        log.warning(`  🔍 [list_account_notebooks] body text (first 800 chars): ${bodySnippet}`);
         return [];
       }
 
-      // Primer paso: leer el texto visible de cada tarjeta sin navegar (rápido).
-      const cardTexts = await page.$$eval(cardSelector, (buttons) =>
-        buttons.map((button) => (button.textContent || "").replace(/\s+/g, " ").trim())
+      return await page.$$eval(cardSelector, (anchors) =>
+        anchors
+          .map((anchor) => {
+            const id =
+              (anchor.getAttribute("href") || "").match(/\/notebook\/([^/?#]+)/)?.[1] || "";
+            if (!id) return null;
+            const name = document.getElementById(`project-${id}-title`)?.textContent?.trim() || "";
+            const subtitle =
+              document.getElementById(`project-${id}-subtitle`)?.textContent?.trim() || "";
+            const sourceMatch = subtitle.match(
+              /(\d+)\s*(fuentes?|sources?|quellen|fonti|fontes|bronnen|ソース)/i
+            );
+            return {
+              id,
+              name,
+              url: `https://notebook.google.com/notebook/${id}`,
+              lastModified: subtitle,
+              sourceCount: sourceMatch ? Number(sourceMatch[1]) : null,
+            };
+          })
+          .filter((entry): entry is AccountNotebookSummary => Boolean(entry && entry.name))
       );
-
-      const results: AccountNotebookSummary[] = [];
-      for (let index = 0; index < cardCount; index += 1) {
-        const rawText = cardTexts[index] || "";
-        const sourceMatch = rawText.match(
-          /(\d+)\s*(fuentes?|sources?|quellen|fonti|fontes|bronnen|ソース)/i
-        );
-        const name = sourceMatch
-          ? rawText
-              .slice(0, rawText.length - sourceMatch[0].length)
-              .replace(/[·•]+\s*$/, "")
-              .trim()
-          : rawText;
-
-        let id = "";
-        try {
-          await page.locator(cardSelector).nth(index).click({ timeout: 5000 });
-          await page.waitForURL(NOTEBOOK_URL_ID_PATTERN, { timeout: 15000 });
-          id = page.url().match(NOTEBOOK_URL_ID_PATTERN)?.[1] || "";
-        } catch (error) {
-          log.warning(`  ⚠️  No se pudo abrir la tarjeta ${index + 1}/${cardCount}: ${error}`);
-        } finally {
-          if (!/notebook\.google\.com\/?$/i.test(page.url())) {
-            await page
-              .goto(NOTEBOOKLM_HOME_URL, { waitUntil: "domcontentloaded", timeout })
-              .catch(() => {});
-            await randomDelay(800, 1400);
-          }
-        }
-
-        if (name) {
-          results.push({
-            id,
-            name,
-            url: id ? `https://notebook.google.com/notebook/${id}` : "",
-            lastModified: rawText,
-            sourceCount: sourceMatch ? Number(sourceMatch[1]) : null,
-          });
-        }
-      }
-      return results;
     } finally {
       await page.close().catch(() => {});
     }
