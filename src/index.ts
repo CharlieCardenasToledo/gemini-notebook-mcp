@@ -283,6 +283,10 @@ class NotebookLMMCPServer {
             result = await this.toolHandlers.handleListNotebooks();
             break;
 
+          case "list_account_notebooks":
+            result = await this.toolHandlers.handleListAccountNotebooks();
+            break;
+
           case "get_notebook":
             result = await this.toolHandlers.handleGetNotebook(args as { id: string });
             break;

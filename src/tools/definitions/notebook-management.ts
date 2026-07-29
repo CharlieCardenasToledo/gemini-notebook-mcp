@@ -98,6 +98,26 @@ export const notebookManagementTools: Tool[] = [
     },
   },
   {
+    name: "list_account_notebooks",
+    description:
+      "List every notebook that actually exists in the signed-in Google " +
+      "account, read live from the NotebookLM home page — not just the " +
+      "ones previously registered with `add_notebook`. Slower than " +
+      "`list_notebooks` (it opens each notebook card once to read its real " +
+      "id from the URL) and requires an authenticated session. Use this " +
+      "when the user asks to pick from all their notebooks, not just the " +
+      "local library.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+    annotations: {
+      title: "List account notebooks",
+      readOnlyHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
     name: "get_notebook",
     description:
       "Fetch full metadata for one notebook by id. Use to verify what's " +

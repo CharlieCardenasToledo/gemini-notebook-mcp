@@ -61,8 +61,21 @@ try {
         }
       )
     );
+  } else if (action === "list-account-notebooks") {
+    console.log(
+      "Opening the NotebookLM home page and reading real notebooks (slow: one click per card)..."
+    );
+    printToolResult(
+      await client.callTool({ name: "list_account_notebooks", arguments: {} }, undefined, {
+        timeout: 180_000,
+        resetTimeoutOnProgress: true,
+        maxTotalTimeout: 240_000,
+      })
+    );
   } else {
-    throw new Error(`Unknown action "${action}". Use "health", "auth", or "ask".`);
+    throw new Error(
+      `Unknown action "${action}". Use "health", "auth", "ask", or "list-account-notebooks".`
+    );
   }
 } finally {
   await client.close();

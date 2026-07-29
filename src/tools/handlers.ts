@@ -4,7 +4,7 @@
  * Implements the logic for all MCP tools.
  */
 
-import type { SessionManager } from "../session/session-manager.js";
+import type { SessionManager, AccountNotebookSummary } from "../session/session-manager.js";
 import type { AuthManager } from "../auth/auth-manager.js";
 import type { NotebookLibrary } from "../library/notebook-library.js";
 import type {
@@ -640,6 +640,29 @@ export class ToolHandlers {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log.error(`❌ [TOOL] list_notebooks failed: ${errorMessage}`);
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Handle list_account_notebooks tool
+   */
+  async handleListAccountNotebooks(): Promise<ToolResult<{ notebooks: AccountNotebookSummary[] }>> {
+    log.info(`🔧 [TOOL] list_account_notebooks called`);
+
+    try {
+      const notebooks = await this.sessionManager.listAccountNotebooks();
+      log.success(`✅ [TOOL] list_account_notebooks completed (${notebooks.length} notebooks)`);
+      return {
+        success: true,
+        data: { notebooks },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] list_account_notebooks failed: ${errorMessage}`);
       return {
         success: false,
         error: errorMessage,

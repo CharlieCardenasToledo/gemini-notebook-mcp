@@ -15,11 +15,26 @@
 import type { AuthManager } from "../auth/auth-manager.js";
 import { BrowserSession } from "./browser-session.js";
 import { SharedContextManager } from "./shared-context-manager.js";
-import { CONFIG } from "../config.js";
+import { CONFIG, getRuntimeConfig } from "../config.js";
 import { log } from "../utils/logger.js";
 import type { SessionInfo } from "../types.js";
 import { randomBytes } from "crypto";
 import { normalizeNotebookUrl } from "../notebooklm/url.js";
+import { Selectors } from "../notebooklm/selectors.js";
+import { randomDelay } from "../utils/stealth-utils.js";
+
+const NOTEBOOKLM_HOME_URL = "https://notebook.google.com/";
+const NOTEBOOK_URL_ID_PATTERN = /\/notebook\/([a-zA-Z0-9_-]+)\/?/;
+
+export interface AccountNotebookSummary {
+  /** Real Google notebook id, taken from the URL after opening the card. */
+  id: string;
+  name: string;
+  url: string;
+  /** Raw "date · N sources" text as shown on the card, locale-dependent. */
+  lastModified: string;
+  sourceCount: number | null;
+}
 
 export class SessionManager {
   private authManager: AuthManager;
@@ -227,6 +242,91 @@ export class SessionManager {
     }
 
     return closed;
+  }
+
+  /**
+   * List the notebooks that actually exist in the signed-in Google account,
+   * as shown on the NotebookLM home grid. Unlike `NotebookLibrary.listNotebooks()`
+   * (a locally curated bookmark list), this reflects reality: every notebook
+   * the user created, whether or not it was ever registered with `add_notebook`.
+   *
+   * The card DOM (`Selectors.notebooks.projectCard`) does not expose the real
+   * notebook id as a stable, documented attribute, so instead of guessing at
+   * one, each card is opened and the id is read back from the resulting URL
+   * (`/notebook/<id>`) — the same format already validated in `url.ts`. This
+   * is slower than a single DOM read (one navigation per notebook) but never
+   * returns a fabricated id.
+   */
+  async listAccountNotebooks(): Promise<AccountNotebookSummary[]> {
+    const context = await this.sharedContextManager.getOrCreateContext();
+    const page = await context.newPage();
+    const timeout = getRuntimeConfig().browserTimeout;
+    try {
+      await page.goto(NOTEBOOKLM_HOME_URL, { waitUntil: "domcontentloaded", timeout });
+      await randomDelay(1500, 2500);
+      if (/accounts\.google\.com/i.test(page.url())) {
+        throw new Error(
+          "NotebookLM MCP no está autenticado. Ejecuta setup_auth antes de listar los notebooks de la cuenta."
+        );
+      }
+
+      const cardSelector = Selectors.notebooks.projectCard;
+      const cardCount = await page
+        .locator(cardSelector)
+        .count()
+        .catch(() => 0);
+      if (cardCount === 0) {
+        return [];
+      }
+
+      // Primer paso: leer el texto visible de cada tarjeta sin navegar (rápido).
+      const cardTexts = await page.$$eval(cardSelector, (buttons) =>
+        buttons.map((button) => (button.textContent || "").replace(/\s+/g, " ").trim())
+      );
+
+      const results: AccountNotebookSummary[] = [];
+      for (let index = 0; index < cardCount; index += 1) {
+        const rawText = cardTexts[index] || "";
+        const sourceMatch = rawText.match(
+          /(\d+)\s*(fuentes?|sources?|quellen|fonti|fontes|bronnen|ソース)/i
+        );
+        const name = sourceMatch
+          ? rawText
+              .slice(0, rawText.length - sourceMatch[0].length)
+              .replace(/[·•]+\s*$/, "")
+              .trim()
+          : rawText;
+
+        let id = "";
+        try {
+          await page.locator(cardSelector).nth(index).click({ timeout: 5000 });
+          await page.waitForURL(NOTEBOOK_URL_ID_PATTERN, { timeout: 15000 });
+          id = page.url().match(NOTEBOOK_URL_ID_PATTERN)?.[1] || "";
+        } catch (error) {
+          log.warning(`  ⚠️  No se pudo abrir la tarjeta ${index + 1}/${cardCount}: ${error}`);
+        } finally {
+          if (!/notebook\.google\.com\/?$/i.test(page.url())) {
+            await page
+              .goto(NOTEBOOKLM_HOME_URL, { waitUntil: "domcontentloaded", timeout })
+              .catch(() => {});
+            await randomDelay(800, 1400);
+          }
+        }
+
+        if (name) {
+          results.push({
+            id,
+            name,
+            url: id ? `https://notebook.google.com/notebook/${id}` : "",
+            lastModified: rawText,
+            sourceCount: sourceMatch ? Number(sourceMatch[1]) : null,
+          });
+        }
+      }
+      return results;
+    } finally {
+      await page.close().catch(() => {});
+    }
   }
 
   /**
