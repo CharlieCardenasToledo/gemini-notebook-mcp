@@ -200,7 +200,7 @@ export class AuthManager {
       for (const cookie of googleCookies) {
         const expires = cookie.expires ?? -1;
         if (expires !== -1 && expires < currentTime) {
-          log.warning(`⚠️  Cookie '${cookie.name}' has expired`);
+          log.warning(`⚠️  A saved authentication cookie has expired`);
           return false;
         }
       }
@@ -251,7 +251,7 @@ export class AuthManager {
       }
 
       if (expiredCookies.length > 0) {
-        log.warning(`⚠️  Expired cookies: ${expiredCookies.join(", ")}`);
+        log.warning(`⚠️  ${expiredCookies.length} authentication cookie(s) expired`);
         return false;
       }
 
@@ -319,7 +319,7 @@ export class AuthManager {
           if (notebookPage) {
             await sendProgress?.("Login successful! NotebookLM detected!", 9, 10);
             log.success("✅ Login successful! NotebookLM URL detected.");
-            log.success(`✅ Current URL: ${notebookPage.url()}`);
+            log.diagnostic("Authenticated NotebookLM URL", notebookPage.url());
 
             // Short wait to ensure page is loaded
             await wait(2000);
@@ -334,7 +334,7 @@ export class AuthManager {
           if (attempt % 10 === 0 && attempt > 0) {
             const currentUrls = livePages.map((candidate) => candidate.url());
             log.warning(`⏳ Still waiting... (${elapsedSeconds}s elapsed)`);
-            log.info(`  Open pages: ${currentUrls.join(" | ")}`);
+            log.diagnostic("Open login pages", currentUrls.join(" | "));
           }
 
           await wait(checkIntervalMs);
@@ -376,8 +376,7 @@ export class AuthManager {
     email: string,
     password: string
   ): Promise<boolean> {
-    const maskedEmail = this.maskEmail(email);
-    log.warning(`🔁 Attempting automatic login for ${maskedEmail}...`);
+    log.warning(`🔁 Attempting automatic login...`);
 
     // Log browser visibility
     if (!getRuntimeConfig().headless) {
@@ -393,7 +392,8 @@ export class AuthManager {
         waitUntil: "domcontentloaded",
         timeout: getRuntimeConfig().browserTimeout,
       });
-      log.success(`  ✅ Page loaded: ${page.url().slice(0, 80)}...`);
+      log.success(`  ✅ Login page loaded`);
+      log.diagnostic("Login page URL", page.url());
     } catch {
       log.warning(`  ⚠️  Page load timeout (continuing anyway)`);
     }
@@ -447,7 +447,7 @@ export class AuthManager {
         log.warning(
           `  ⏳ Still waiting for password field... (${secondsWaited}s elapsed, ${secondsRemaining.toFixed(0)}s remaining)`
         );
-        log.info(`  📍 Current URL: ${page.url().slice(0, 100)}`);
+        log.diagnostic("Current login URL", page.url());
       }
 
       if (page.url().includes("challenge")) {
@@ -476,7 +476,8 @@ export class AuthManager {
         `login_failed_${Date.now()}.png`
       );
       await page.screenshot({ path: screenshotPath });
-      log.info(`  📸 Screenshot saved: ${screenshotPath}`);
+      log.info(`  📸 Diagnostic screenshot saved`);
+      log.diagnostic("Diagnostic screenshot path", screenshotPath);
     } catch (error) {
       log.warning(`  ⚠️  Could not save screenshot: ${error}`);
     }
@@ -496,13 +497,15 @@ export class AuthManager {
         log.error("  ❌ Still on password page - password input might have failed");
         log.info("  💡 Check if password is correct in .env");
       } else {
-        log.error(`  ❌ Stuck on Google accounts page: ${currentUrl.slice(0, 80)}...`);
+        log.error(`  ❌ Stuck on Google accounts page`);
+        log.diagnostic("Stuck login URL", currentUrl);
       }
     } else if (isNotebookLmPageUrl(currentUrl)) {
       log.warning("  ⚠️  Reached NotebookLM but couldn't detect successful login");
       log.info("  💡 This might be a timing issue - try again");
     } else {
-      log.error(`  ❌ Unexpected page: ${currentUrl.slice(0, 80)}...`);
+      log.error(`  ❌ Unexpected page during login`);
+      log.diagnostic("Unexpected login URL", currentUrl);
     }
 
     return false;
@@ -647,7 +650,7 @@ export class AuthManager {
 
     if (!emailField || !emailSelector) {
       log.warning("    ℹ️  No visible email field found (likely pre-filled)");
-      log.info(`    📍 Current URL: ${page.url().slice(0, 100)}`);
+      log.diagnostic("Current email-step URL", page.url());
       return false;
     }
 
@@ -678,7 +681,7 @@ export class AuthManager {
     }
 
     // ✅ FASTER: Programmer typing speed (90-120 WPM from config)
-    log.info(`    ⌨️  Typing email: ${this.maskEmail(email)}`);
+    log.info(`    ⌨️  Typing configured email...`);
     try {
       const { typingWpmMin, typingWpmMax } = getRuntimeConfig();
       const wpm = typingWpmMin + Math.floor(Math.random() * (typingWpmMax - typingWpmMin + 1));
@@ -851,20 +854,6 @@ export class AuthManager {
     return false;
   }
 
-  /**
-   * Mask email for logging
-   */
-  private maskEmail(email: string): string {
-    if (!email.includes("@")) {
-      return "***";
-    }
-    const [name, domain] = email.split("@");
-    if (name.length <= 2) {
-      return `${"*".repeat(name.length)}@${domain}`;
-    }
-    return `${name[0]}${"*".repeat(name.length - 2)}${name[name.length - 1]}@${domain}`;
-  }
-
   // ============================================================================
   // Additional Helper Methods
   // ============================================================================
@@ -881,7 +870,8 @@ export class AuthManager {
       // Add cookies to context
       if (state.cookies) {
         await context.addCookies(state.cookies);
-        log.success(`✅ Loaded ${state.cookies.length} cookies from ${statePath}`);
+        log.success(`✅ Loaded ${state.cookies.length} cookies from saved state`);
+        log.diagnostic("Saved-state path", statePath);
         return true;
       }
 
@@ -922,7 +912,7 @@ export class AuthManager {
 
     try {
       log.info("🚀 Launching persistent browser for interactive setup...");
-      log.info(`  📍 Profile: ${getRuntimeConfig().chromeProfileDir}`);
+      log.diagnostic("Interactive profile path", getRuntimeConfig().chromeProfileDir);
       await sendProgress?.("Launching persistent browser...", 1, 10);
 
       // ✅ CRITICAL FIX: Use launchPersistentContext (same as runtime!)
@@ -931,8 +921,8 @@ export class AuthManager {
       const baseLaunchOptions = {
         headless: !shouldShowBrowser,
         viewport: getRuntimeConfig().viewport,
-        locale: "en-US",
-        timezoneId: "Europe/Berlin",
+        locale: getRuntimeConfig().browserLocale,
+        timezoneId: getRuntimeConfig().browserTimezone,
         args: [
           "--disable-blink-features=AutomationControlled",
           "--disable-dev-shm-usage",
@@ -977,8 +967,8 @@ export class AuthManager {
           page;
         await this.saveBrowserState(context, authenticatedPage);
         log.success("✅ Setup complete - authentication saved to:");
-        log.success(`  📄 State file: ${this.stateFilePath}`);
-        log.success(`  📁 Chrome profile: ${getRuntimeConfig().chromeProfileDir}`);
+        log.diagnostic("Authentication state file", this.stateFilePath);
+        log.diagnostic("Chrome profile", getRuntimeConfig().chromeProfileDir);
         log.info("💡 Session cookies will now persist across restarts!");
       }
 

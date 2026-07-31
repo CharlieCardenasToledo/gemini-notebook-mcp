@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3] - 2026-07-31
+
+### Security
+
+- Made `ask_question` metadata static so user-controlled notebook names,
+  descriptions, topics, and use cases are never promoted into trusted MCP
+  instructions.
+- Restricted `cleanup_data` to `NOTEBOOKLM_DATA_DIR` and added an expiring,
+  single-use preview token plus path-manifest verification before deletion.
+- Replaced 32-bit browser session identifiers with UUIDs and isolated session
+  lookup, listing, reset, and close operations by MCP client.
+- Added runtime Zod validation and bounded inputs for every tool before browser
+  work starts.
+- Updated the compatible MCP SDK 1.x dependency to 1.30.0, removing the
+  vulnerable Hono transitive dependency reported against 1.29.0.
+- Added privacy-aware logging with content and DOM diagnostics disabled by
+  default, identifier hashing, URL/path redaction, levels, and JSON output.
+- Confined audio downloads to `NOTEBOOKLM_OUTPUT_DIR`, with directory creation,
+  filename sanitization, traversal protection, and collision handling.
+
+### Fixed
+
+- Replaced the unverifiable hardcoded `Gemini 2.5` label with
+  `model: "google-managed"` and explicit NotebookLM-managed model selection.
+- Made `package.json` the runtime source of truth for the MCP identity, banner,
+  logs, and HTTP health version.
+- Added a shared authenticated-page recovery path for source and audio tools.
+- Distinguished an empty NotebookLM account from a broken home-grid selector by
+  returning `UI_CHANGED` when the grid cannot be detected.
+- Allowed notebook descriptions and collection fields to be cleared during an
+  update and stopped returning the library's mutable internal array.
+- Made browser locale and timezone configurable and system-derived by default.
+- Corrected `setup_auth`, account-grid, quota, and audio-download documentation.
+
+### Added
+
+- Structured error details and MCP `structuredContent` alongside the existing
+  JSON text result for compatibility.
+- Cross-platform GitHub Actions CI for Node 22/24, package validation, CodeQL,
+  Dependabot, and security regression tests.
+
 ## [2.1.2] - 2026-07-31
 
 ### Fixed

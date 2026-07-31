@@ -5,25 +5,19 @@
  */
 
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { NotebookLibrary } from "../library/notebook-library.js";
-import { askQuestionTool, buildAskQuestionDescription } from "./definitions/ask-question.js";
+import { askQuestionTool } from "./definitions/ask-question.js";
 import { notebookManagementTools } from "./definitions/notebook-management.js";
 import { sessionManagementTools } from "./definitions/session-management.js";
 import { systemTools } from "./definitions/system.js";
 import { sourceTools } from "./definitions/sources.js";
 
 /**
- * Build Tool Definitions with NotebookLibrary context
+ * Build static tool definitions. User-controlled notebook metadata is returned
+ * as data by notebook tools and is never embedded in trusted descriptions.
  */
-export function buildToolDefinitions(library: NotebookLibrary): Tool[] {
-  // Update the description for ask_question based on the library state
-  const dynamicAskQuestionTool = {
-    ...askQuestionTool,
-    description: buildAskQuestionDescription(library),
-  };
-
+export function buildToolDefinitions(): Tool[] {
   return [
-    dynamicAskQuestionTool,
+    askQuestionTool,
     ...notebookManagementTools,
     ...sessionManagementTools,
     ...systemTools,

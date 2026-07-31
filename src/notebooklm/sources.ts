@@ -1,12 +1,12 @@
 /**
  * NotebookLM source ingestion (issue #25).
  *
- * v2.0.0 supports the two source types that cover the bulk of real usage:
+ * The current browser backend supports the two source types that cover the bulk of real usage:
  *   - `url`  — paste a website URL (NotebookLM crawls and indexes it)
  *   - `text` — paste raw text (treated as a copied document)
  *
  * File-upload, YouTube and Google-Drive ingestion are intentionally out of
- * scope for v2.0.0 — they require different overlay flows.
+ * scope for this module — they require different overlay flows.
  *
  * Robustness strategy (2026-05, ported from the Fork's content-manager.ts):
  *
@@ -30,7 +30,7 @@
 import type { Page } from "patchright";
 import { Selectors, joinAlt } from "./selectors.js";
 import { safeSleep, isRecoverable } from "../browser/watchdog.js";
-import { log } from "../utils/logger.js";
+import { hashLogValue, log } from "../utils/logger.js";
 
 export type SourceType = "url" | "text";
 
@@ -53,7 +53,9 @@ export interface AddSourceResult {
 export async function addSource(page: Page, input: AddSourceInput): Promise<AddSourceResult> {
   const initialUrl = page.url();
   const expectedUuid = initialUrl.match(/notebook\/([a-f0-9-]+)/)?.[1];
-  log.info(`📄 [add_source] type=${input.type} target_uuid=${expectedUuid ?? "?"}`);
+  log.info(
+    `📄 [add_source] type=${input.type} target_hash=${expectedUuid ? hashLogValue(expectedUuid) : "unknown"}`
+  );
 
   try {
     // 1. Open the Add-source dialog (or use one that's already open).
@@ -86,7 +88,7 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
       const currentUrl = page.url();
       const currentUuid = currentUrl.match(/notebook\/([a-f0-9-]+)/)?.[1];
       if (currentUuid && currentUuid !== expectedUuid) {
-        log.error(`  ❌ Notebook redirect: expected ${expectedUuid}, got ${currentUuid}`);
+        log.error(`  ❌ Notebook redirect did not match the requested notebook`);
         return {
           success: false,
           type: input.type,

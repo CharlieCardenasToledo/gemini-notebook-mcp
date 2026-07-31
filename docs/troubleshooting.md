@@ -1,6 +1,6 @@
 # Troubleshooting
 
-A symptom → fix matrix for v2.0.0. For the full env-var inventory, see [`configuration.md`](./configuration.md).
+A symptom → fix matrix for the current 2.x release. For the full env-var inventory, see [`configuration.md`](./configuration.md).
 
 ## Chrome fails to launch (macOS Tahoe / Windows exit 21)
 
@@ -56,7 +56,8 @@ Workflow:
    ```json
    { "name": "cleanup_data", "arguments": { "confirm": false, "preserve_library": true } }
    ```
-   Review the preview, then run again with `confirm: true`. Then `setup_auth`.
+   Review the preview, close every browser session, then run again with
+   `confirm: true` and the returned `preview_token`. Then `setup_auth`.
 
 ## WSL1
 
@@ -103,7 +104,8 @@ Symptom: Chrome processes survive after the MCP server exits.
 v2 ships a 5-second shutdown watchdog and an aggressive teardown path, so this is rare. If it does happen:
 
 1. Kill the lingering Chromes manually.
-2. Run `cleanup_data` with `preserve_library: true` to remove stale profile locks.
+2. Preview `cleanup_data` with `preserve_library: true`, then confirm using the
+   returned token to remove MCP-owned profile data.
 3. Restart the server.
 
 ## Profile lock / `ProcessSingleton` errors
@@ -120,7 +122,7 @@ NOTEBOOK_PROFILE_STRATEGY=auto npx notebooklm-mcp@latest
 
 ## Rate limit reached
 
-Symptom: `NotebookLM rate limit reached (50 queries/day for free accounts)`.
+Symptom: NotebookLM reports a rate or quota limit.
 
 Options:
 
@@ -160,7 +162,7 @@ NOTEBOOKLM_FOLLOW_UP_REMINDER=true npx notebooklm-mcp@latest
 
 ## AI marker breaks downstream parsing
 
-The default answer text starts with `[AI-GENERATED via Gemini 2.5 (NotebookLM) — …]`. To return to the unprefixed answer, set:
+The default answer text starts with `[AI-GENERATED via Google NotebookLM — …]`. To return to the unprefixed answer, set:
 
 ```bash
 NOTEBOOKLM_AI_MARKER=false npx notebooklm-mcp@latest

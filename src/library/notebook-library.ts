@@ -9,7 +9,7 @@
 import fs from "fs";
 import path from "path";
 import { CONFIG } from "../config.js";
-import { log } from "../utils/logger.js";
+import { hashLogValue, log } from "../utils/logger.js";
 import type {
   NotebookEntry,
   Library,
@@ -50,10 +50,10 @@ export class NotebookLibrary {
     this.library = this.loadLibrary();
 
     log.info("📚 NotebookLibrary initialized");
-    log.info(`  Library path: ${this.libraryPath}`);
+    log.diagnostic("Library path", this.libraryPath);
     log.info(`  Notebooks: ${this.library.notebooks.length}`);
     if (this.library.active_notebook_id) {
-      log.info(`  Active: ${this.library.active_notebook_id}`);
+      log.info(`  Active notebook hash: ${hashLogValue(this.library.active_notebook_id)}`);
     }
   }
 
@@ -73,7 +73,8 @@ export class NotebookLibrary {
       if (fs.existsSync(this.libraryPath)) {
         const backupPath = `${this.libraryPath}.corrupt-${Date.now()}`;
         fs.copyFileSync(this.libraryPath, backupPath);
-        log.warning(`  🛟 Preserved unreadable library at: ${backupPath}`);
+        log.warning(`  🛟 Preserved unreadable library for diagnostics`);
+        log.diagnostic("Unreadable library backup", backupPath);
       }
     }
 
@@ -113,7 +114,7 @@ export class NotebookLibrary {
         tags: [],
       });
 
-      log.success(`  ✅ Created default notebook: ${id}`);
+      log.success(`  ✅ Created default notebook: ${hashLogValue(id)}`);
     }
 
     return {
@@ -170,7 +171,7 @@ export class NotebookLibrary {
    * Add a new notebook to the library
    */
   addNotebook(input: AddNotebookInput): NotebookEntry {
-    log.info(`📝 Adding notebook: ${input.name}`);
+    log.info(`📝 Adding notebook (${input.name.length} name characters)`);
     const normalizedUrl = normalizeNotebookUrl(input.url);
 
     // Generate ID
@@ -204,7 +205,7 @@ export class NotebookLibrary {
     }
 
     this.saveLibrary(updated);
-    log.success(`✅ Notebook added: ${id}`);
+    log.success(`✅ Notebook added: ${hashLogValue(id)}`);
 
     return notebook;
   }
@@ -213,7 +214,13 @@ export class NotebookLibrary {
    * List all notebooks in library
    */
   listNotebooks(): NotebookEntry[] {
-    return this.library.notebooks;
+    return this.library.notebooks.map((notebook) => ({
+      ...notebook,
+      topics: [...notebook.topics],
+      content_types: [...notebook.content_types],
+      use_cases: [...notebook.use_cases],
+      ...(notebook.tags && { tags: [...notebook.tags] }),
+    }));
   }
 
   /**
@@ -242,7 +249,7 @@ export class NotebookLibrary {
       throw new Error(`Notebook not found: ${id}`);
     }
 
-    log.info(`🎯 Selecting notebook: ${id}`);
+    log.info(`🎯 Selecting notebook: ${hashLogValue(id)}`);
 
     const updated = { ...this.library, notebooks: [...this.library.notebooks] };
     updated.active_notebook_id = id;
@@ -255,7 +262,7 @@ export class NotebookLibrary {
     };
 
     this.saveLibrary(updated);
-    log.success(`✅ Active notebook: ${id}`);
+    log.success(`✅ Active notebook: ${hashLogValue(id)}`);
 
     return updated.notebooks[notebookIndex];
   }
@@ -269,24 +276,24 @@ export class NotebookLibrary {
       throw new Error(`Notebook not found: ${input.id}`);
     }
 
-    log.info(`📝 Updating notebook: ${input.id}`);
+    log.info(`📝 Updating notebook: ${hashLogValue(input.id)}`);
 
     const updated = { ...this.library, notebooks: [...this.library.notebooks] };
     const index = updated.notebooks.findIndex((n) => n.id === input.id);
 
     updated.notebooks[index] = {
       ...notebook,
-      ...(input.name && { name: input.name }),
-      ...(input.description && { description: input.description }),
-      ...(input.topics && { topics: input.topics }),
-      ...(input.content_types && { content_types: input.content_types }),
-      ...(input.use_cases && { use_cases: input.use_cases }),
-      ...(input.tags && { tags: input.tags }),
-      ...(input.url && { url: normalizeNotebookUrl(input.url) }),
+      ...(input.name !== undefined && { name: input.name }),
+      ...(input.description !== undefined && { description: input.description }),
+      ...(input.topics !== undefined && { topics: input.topics }),
+      ...(input.content_types !== undefined && { content_types: input.content_types }),
+      ...(input.use_cases !== undefined && { use_cases: input.use_cases }),
+      ...(input.tags !== undefined && { tags: input.tags }),
+      ...(input.url !== undefined && { url: normalizeNotebookUrl(input.url) }),
     };
 
     this.saveLibrary(updated);
-    log.success(`✅ Notebook updated: ${input.id}`);
+    log.success(`✅ Notebook updated: ${hashLogValue(input.id)}`);
 
     return updated.notebooks[index];
   }
@@ -300,7 +307,7 @@ export class NotebookLibrary {
       return false;
     }
 
-    log.info(`🗑️  Removing notebook: ${id}`);
+    log.info(`🗑️  Removing notebook: ${hashLogValue(id)}`);
 
     const updated = { ...this.library, notebooks: [...this.library.notebooks] };
     updated.notebooks = updated.notebooks.filter((n) => n.id !== id);
@@ -311,7 +318,7 @@ export class NotebookLibrary {
     }
 
     this.saveLibrary(updated);
-    log.success(`✅ Notebook removed: ${id}`);
+    log.success(`✅ Notebook removed: ${hashLogValue(id)}`);
 
     return true;
   }

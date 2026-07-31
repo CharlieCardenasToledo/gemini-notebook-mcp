@@ -3,7 +3,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "2.1.2",
+  "version": "2.1.3",
   "description": "MCP server for Google Gemini Notebook (formerly NotebookLM) — chat, source ingestion, audio overviews, citations, stdio + Streamable-HTTP transports.",
   "type": "module",
   "bin": {
@@ -50,9 +50,8 @@
     "docs"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "env-paths": "^3.0.0",
-    "globby": "^14.1.0",
     "patchright": "^1.48.2",
     "zod": "^3.22.0"
   },

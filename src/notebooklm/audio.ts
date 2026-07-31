@@ -28,10 +28,12 @@
  */
 
 import type { Page } from "patchright";
-import path from "path";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { Selectors, joinAlt } from "./selectors.js";
 import { safeSleep, isRecoverable } from "../browser/watchdog.js";
 import { log } from "../utils/logger.js";
+import { CONFIG } from "../config.js";
 
 export type AudioStatus = "ready" | "in_progress" | "not_started";
 
@@ -276,9 +278,11 @@ export interface DownloadAudioResult {
 export async function downloadAudioOverview(
   page: Page,
   destinationDir: string,
-  preferredFileName: string = "notebooklm-audio.wav"
+  preferredFileName: string = "notebooklm-audio.m4a"
 ): Promise<DownloadAudioResult> {
   try {
+    const resolvedDestination = await prepareOutputDirectory(destinationDir);
+
     if (!(await audioIsReady(page))) {
       return {
         success: false,
@@ -301,8 +305,8 @@ export async function downloadAudioOverview(
     );
     const download = await downloadPromise;
 
-    const suggested = download.suggestedFilename();
-    const targetPath = path.join(destinationDir, suggested || preferredFileName);
+    const suggested = sanitizeDownloadName(download.suggestedFilename() || preferredFileName);
+    const targetPath = await chooseAvailablePath(resolvedDestination, suggested);
     await download.saveAs(targetPath);
 
     return { success: true, filePath: targetPath };
@@ -314,6 +318,69 @@ export async function downloadAudioOverview(
       message: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+export function resolveOutputDirectory(
+  destinationDir: string,
+  outputRoot = CONFIG.outputDir
+): string {
+  const allowedRoot = path.resolve(outputRoot);
+  const requestedDir = destinationDir.trim() || ".";
+  const targetPath = path.isAbsolute(requestedDir)
+    ? path.resolve(requestedDir)
+    : path.resolve(allowedRoot, requestedDir);
+  const relative = path.relative(allowedRoot, targetPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("OUTPUT_PATH_DENIED: destination_dir must be inside NOTEBOOKLM_OUTPUT_DIR");
+  }
+  return targetPath;
+}
+
+export async function prepareOutputDirectory(
+  destinationDir: string,
+  outputRoot = CONFIG.outputDir
+): Promise<string> {
+  const allowedRoot = path.resolve(outputRoot);
+  const targetPath = resolveOutputDirectory(destinationDir, allowedRoot);
+  await fs.mkdir(allowedRoot, { recursive: true });
+  await fs.mkdir(targetPath, { recursive: true });
+
+  const [realRoot, realTarget] = await Promise.all([
+    fs.realpath(allowedRoot),
+    fs.realpath(targetPath),
+  ]);
+  const relative = path.relative(realRoot, realTarget);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("OUTPUT_PATH_DENIED: destination_dir resolves outside NOTEBOOKLM_OUTPUT_DIR");
+  }
+  return realTarget;
+}
+
+export function sanitizeDownloadName(input: string): string {
+  const base = path
+    .basename(input)
+    .replace(/[<>:"/\\|?*]/g, "_")
+    .split("")
+    .map((character) => (character.charCodeAt(0) < 32 ? "_" : character))
+    .join("")
+    .trim();
+  const safe = base.replace(/^\.+/, "").slice(0, 180);
+  if (!safe) return "notebooklm-audio.m4a";
+  return path.extname(safe) ? safe : `${safe}.m4a`;
+}
+
+async function chooseAvailablePath(directory: string, fileName: string): Promise<string> {
+  const extension = path.extname(fileName);
+  const stem = path.basename(fileName, extension);
+  for (let index = 0; index < 10_000; index++) {
+    const candidate = path.join(directory, index === 0 ? fileName : `${stem}-${index}${extension}`);
+    try {
+      await fs.access(candidate);
+    } catch {
+      return candidate;
+    }
+  }
+  throw new Error("Unable to allocate a unique audio filename");
 }
 
 async function clickFirstVisible(

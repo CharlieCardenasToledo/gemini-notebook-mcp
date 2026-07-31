@@ -11,6 +11,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 const sharedNotebookTargeting = {
   session_id: {
     type: "string",
+    format: "uuid",
     description:
       "Reuse an existing browser session by id. Recommended when you have " +
       "already called `ask_question` against the same notebook — saves the " +
@@ -37,7 +38,7 @@ export const addSourceTool: Tool = {
   name: "add_source",
   description:
     "Ingest a source into a NotebookLM notebook. Supports two source types " +
-    "in v2.0:\n" +
+    "in the current browser backend:\n" +
     "  • `url` — NotebookLM crawls and indexes a website\n" +
     "  • `text` — paste raw text (treated as a copied document)\n\n" +
     "File / YouTube / Google-Drive uploads are not yet implemented.\n\n" +
@@ -106,7 +107,7 @@ export const generateAudioTool: Tool = {
     "  3. When status is `ready`, call `download_audio`\n\n" +
     "Pass `wait_for_completion: true` for legacy synchronous behaviour " +
     "(blocks for up to `timeout_ms`). Audio Overview is the only Studio " +
-    "output exposed in v2.0 (Video / Mindmap / Quiz / Infographic / " +
+    "output currently exposed (Video / Mindmap / Quiz / Infographic / " +
     "Datatable / Presentation are NotebookLM features but not yet wrapped).",
   inputSchema: {
     type: "object",
@@ -182,7 +183,8 @@ export const downloadAudioTool: Tool = {
     'condition:** `get_audio_status` must report `status: "ready"`. ' +
     "Calling this before generation completes returns an error message " +
     "explaining what to do.\n\n" +
-    "The file lands in `destination_dir` with NotebookLM's suggested " +
+    "The file lands under NOTEBOOKLM_OUTPUT_DIR, using `destination_dir` " +
+    "as a relative subdirectory (or an absolute path inside that root), with NotebookLM's suggested " +
     "filename (sanitised — usually the audio's title with underscores). " +
     "The full saved path is returned in `result.filePath`.",
   inputSchema: {
@@ -191,10 +193,9 @@ export const downloadAudioTool: Tool = {
       destination_dir: {
         type: "string",
         description:
-          "Absolute directory path where the file is saved (created if " +
-          "missing). Example: `/Users/jane/Downloads/notebooklm` or " +
-          "`/tmp/audio`. Relative paths are NOT recommended — the server " +
-          "may run from a different working directory than the caller.",
+          "Directory under NOTEBOOKLM_OUTPUT_DIR where the file is saved " +
+          "(created if missing). Use `.` for the configured output root. " +
+          "Absolute paths are accepted only when they remain inside that root.",
       },
       show_browser: {
         type: "boolean",

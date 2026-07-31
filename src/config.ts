@@ -42,6 +42,8 @@ export interface Config {
    * `browser_options.timeout_ms`.
    */
   answerTimeoutMs: number;
+  browserLocale: string;
+  browserTimezone: string;
   viewport: { width: number; height: number };
 
   // Session Management
@@ -70,6 +72,7 @@ export interface Config {
   browserStateDir: string;
   chromeProfileDir: string;
   chromeInstancesDir: string;
+  outputDir: string;
 
   // Library Configuration (optional, for default notebook metadata)
   notebookDescription: string;
@@ -89,6 +92,8 @@ export interface Config {
 /**
  * Default Configuration (works out of the box!)
  */
+const systemIntl = Intl.DateTimeFormat().resolvedOptions();
+
 const DEFAULTS: Config = {
   // NotebookLM
   notebookUrl: "",
@@ -97,6 +102,8 @@ const DEFAULTS: Config = {
   headless: true,
   browserTimeout: 30000,
   answerTimeoutMs: 600000, // 10 minutes — was hardcoded 120 s (issue #14)
+  browserLocale: systemIntl.locale || "en-US",
+  browserTimezone: systemIntl.timeZone || "UTC",
   // CRITICAL: NotebookLM switches to a tab-based mobile layout below
   // ~1280px. The Studio panel is then offscreen on a non-active tab and
   // selectors that rely on `isVisible()` falsely report "not started".
@@ -129,6 +136,7 @@ const DEFAULTS: Config = {
   browserStateDir: path.join(paths.data, "browser_state"),
   chromeProfileDir: path.join(paths.data, "chrome_profile"),
   chromeInstancesDir: path.join(paths.data, "chrome_profile_instances"),
+  outputDir: path.join(paths.data, "output"),
 
   // Library Configuration
   notebookDescription: "General knowledge base",
@@ -203,6 +211,8 @@ function applyEnvOverrides(config: Config): Config {
     headless: parseBoolean(process.env.HEADLESS, config.headless),
     browserTimeout: parseInteger(process.env.BROWSER_TIMEOUT, config.browserTimeout),
     answerTimeoutMs: parseInteger(process.env.ANSWER_TIMEOUT_MS, config.answerTimeoutMs),
+    browserLocale: process.env.BROWSER_LOCALE || config.browserLocale,
+    browserTimezone: process.env.BROWSER_TIMEZONE || config.browserTimezone,
     maxSessions: parseInteger(process.env.MAX_SESSIONS, config.maxSessions),
     sessionTimeout: parseInteger(process.env.SESSION_TIMEOUT, config.sessionTimeout),
     autoLoginEnabled: parseBoolean(process.env.AUTO_LOGIN_ENABLED, config.autoLoginEnabled),
@@ -227,6 +237,7 @@ function applyEnvOverrides(config: Config): Config {
     browserStateDir: path.join(dataDir, "browser_state"),
     chromeProfileDir: path.join(dataDir, "chrome_profile"),
     chromeInstancesDir: path.join(dataDir, "chrome_profile_instances"),
+    outputDir: process.env.NOTEBOOKLM_OUTPUT_DIR || path.join(dataDir, "output"),
     notebookDescription: process.env.NOTEBOOK_DESCRIPTION || config.notebookDescription,
     notebookTopics: parseArray(process.env.NOTEBOOK_TOPICS, config.notebookTopics),
     notebookContentTypes: parseArray(
@@ -302,6 +313,7 @@ export function ensureDirectories(): void {
     CONFIG.browserStateDir,
     CONFIG.chromeProfileDir,
     CONFIG.chromeInstancesDir,
+    CONFIG.outputDir,
   ];
 
   for (const dir of dirs) {
