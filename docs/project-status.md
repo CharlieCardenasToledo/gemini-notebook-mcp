@@ -3,16 +3,16 @@
 Last updated: 2026-07-31.
 
 This document summarizes the work already delivered, the state of the current
-release candidate, and the remaining roadmap. It distinguishes merged or published
-work from changes that exist only on the active development branch.
+release candidate, and the remaining roadmap. It distinguishes merged, published,
+and still-pending work.
 
 ## Current release state
 
 | Surface | Version | State |
 | --- | --- | --- |
-| GitHub `main` | 2.3.0 | Merged through PR #12 (`bacbcc9`) |
+| GitHub `main` | 2.3.1 | Merged through PR #13 (`47e0a0a`) |
 | npm registry | 2.3.0 | Published |
-| Branch `agent/live-e2e-2.3.1` | 2.3.1 | Validated locally; PR and merge pending |
+| npm release candidate | 2.3.1 | Merged and validated; publication pending |
 
 ## Completed work
 
@@ -63,7 +63,7 @@ work from changes that exist only on the active development branch.
 - Enriched citations with structured source, location, excerpt, and extraction-status
   fields under one total extraction budget.
 
-### 2.3.1 — Safe live verification (current branch)
+### 2.3.1 — Safe live verification
 
 - Added a browser-independent MCP preflight using a temporary data directory.
 - Added an authenticated read-only smoke runner for the account grid, sources, source
@@ -81,16 +81,13 @@ Local validation completed for 2.3.1:
 - `npm run test:live:preflight`: passed as version 2.3.1.
 - `npm audit --json`: zero known vulnerabilities.
 - `npm run package:smoke`: passed with version 2.3.1 and 31 tools.
-- `npm pack --dry-run --json`: valid 2.3.1 tarball with 176 entries.
+- `npm pack --dry-run --json`: valid 2.3.1 tarball with 177 entries.
+- GitHub CI: CodeQL, package smoke, and all Windows/macOS/Ubuntu jobs on Node
+  22/24 passed before PR #13 was merged.
 
 ## Work required to finish 2.3.1
 
-1. Commit and push `agent/live-e2e-2.3.1` without a co-author trailer.
-2. Open the 2.3.1 pull request against `main`.
-3. Wait for all GitHub checks and correct any failures.
-4. Squash-merge the pull request.
-5. Delete the merged remote development branch.
-6. Run the authenticated read-only suite from a machine with a linked, signed-in
+1. Run the authenticated read-only suite from a machine with a linked, signed-in
    browser profile:
 
    ```bash
@@ -99,8 +96,8 @@ Local validation completed for 2.3.1:
 
    `NOTEBOOKLM_LIVE_NOTEBOOK_ID` may be set to choose the target. This environment had
    no linked visual browser, so the authenticated suite has not been certified here.
-7. Publish 2.3.1 to npm from the merged commit, preferably with provenance.
-8. Verify the registry version and installed tarball after publication.
+2. Publish 2.3.1 to npm from the merged commit, preferably with provenance.
+3. Verify the registry version and installed tarball after publication.
 
 ## Remaining product roadmap
 
