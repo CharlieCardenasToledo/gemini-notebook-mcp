@@ -19,6 +19,24 @@ export class RateLimitError extends Error {
   }
 }
 
+export class UiChangedError extends Error {
+  readonly code = "UI_CHANGED";
+
+  constructor(public readonly selectorGroup: string) {
+    super(`UI_CHANGED: NotebookLM selector group could not be verified: ${selectorGroup}`);
+    this.name = "UiChangedError";
+  }
+}
+
+export class OperationCancelledError extends Error {
+  readonly code = "CANCELLED";
+
+  constructor(message = "Operation cancelled by the MCP client") {
+    super(message);
+    this.name = "OperationCancelledError";
+  }
+}
+
 export type ErrorCode =
   | "AUTH_REQUIRED"
   | "PROFILE_LOCKED"
@@ -28,6 +46,7 @@ export type ErrorCode =
   | "SOURCE_NOT_READY"
   | "PERMISSION_DENIED"
   | "BROWSER_CRASHED"
+  | "CANCELLED"
   | "INVALID_ARGUMENT"
   | "OUTPUT_PATH_DENIED"
   | "INTERNAL_ERROR";
@@ -46,6 +65,10 @@ export function classifyError(error: unknown): StructuredToolError {
       ? String((error as { code?: unknown }).code)
       : "";
   const candidate = `${explicitCode} ${message}`;
+
+  if (/CANCELLED|canceled|cancelled|aborted/i.test(candidate)) {
+    return { code: "CANCELLED", message, retryable: false };
+  }
 
   if (/INVALID_ARGUMENT/i.test(candidate)) {
     return { code: "INVALID_ARGUMENT", message, retryable: false };

@@ -75,7 +75,8 @@ export class ToolHandlers {
       browser_options?: BrowserOptions;
       source_format?: "none" | "inline" | "footnotes" | "json";
     },
-    sendProgress?: ProgressCallback
+    sendProgress?: ProgressCallback,
+    signal?: AbortSignal
   ): Promise<ToolResult<AskQuestionResult>> {
     const {
       question,
@@ -155,7 +156,8 @@ export class ToolHandlers {
         const citationResult = await session.askAndExtractCitations(
           question,
           source_format,
-          sendProgress
+          sendProgress,
+          signal
         );
         const baseAnswer = citationResult.formattedAnswer;
 
@@ -316,9 +318,12 @@ export class ToolHandlers {
   /**
    * Handle reset_session tool
    */
-  async handleResetSession(args: {
-    session_id: string;
-  }): Promise<ToolResult<{ status: string; message: string; session_id: string }>> {
+  async handleResetSession(
+    args: {
+      session_id: string;
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ status: string; message: string; session_id: string }>> {
     const { session_id } = args;
 
     log.info(`🔧 [TOOL] reset_session called`);
@@ -335,7 +340,7 @@ export class ToolHandlers {
         };
       }
 
-      await session.reset();
+      await session.reset(signal);
 
       log.success(`✅ [TOOL] reset_session completed`);
       return {
@@ -446,7 +451,8 @@ export class ToolHandlers {
       show_browser?: boolean;
       browser_options?: BrowserOptions;
     },
-    sendProgress?: ProgressCallback
+    sendProgress?: ProgressCallback,
+    signal?: AbortSignal
   ): Promise<
     ToolResult<{
       status: string;
@@ -480,7 +486,7 @@ export class ToolHandlers {
         await sendProgress?.("Opening browser window...", 2, 10);
 
         // Perform setup with progress updates (uses CONFIG internally)
-        const success = await this.authManager.performSetup(sendProgress);
+        const success = await this.authManager.performSetup(sendProgress, undefined, signal);
 
         const durationSeconds = (Date.now() - startTime) / 1000;
 
@@ -532,7 +538,8 @@ export class ToolHandlers {
       show_browser?: boolean;
       browser_options?: BrowserOptions;
     },
-    sendProgress?: ProgressCallback
+    sendProgress?: ProgressCallback,
+    signal?: AbortSignal
   ): Promise<
     ToolResult<{
       status: string;
@@ -570,7 +577,7 @@ export class ToolHandlers {
         // 3. Perform fresh setup
         await sendProgress?.("Starting fresh authentication...", 3, 12);
         log.info("  🌐 Starting fresh authentication setup...");
-        const success = await this.authManager.performSetup(sendProgress);
+        const success = await this.authManager.performSetup(sendProgress, undefined, signal);
 
         const durationSeconds = (Date.now() - startTime) / 1000;
 
@@ -658,11 +665,13 @@ export class ToolHandlers {
   /**
    * Handle list_account_notebooks tool
    */
-  async handleListAccountNotebooks(): Promise<ToolResult<{ notebooks: AccountNotebookSummary[] }>> {
+  async handleListAccountNotebooks(
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ notebooks: AccountNotebookSummary[] }>> {
     log.info(`🔧 [TOOL] list_account_notebooks called`);
 
     try {
-      const notebooks = await this.sessionManager.listAccountNotebooks();
+      const notebooks = await this.sessionManager.listAccountNotebooks(signal);
       log.success(`✅ [TOOL] list_account_notebooks completed (${notebooks.length} notebooks)`);
       return {
         success: true,
@@ -989,15 +998,18 @@ export class ToolHandlers {
   /**
    * Handle add_source tool (issue #25).
    */
-  async handleAddSource(args: {
-    type: "url" | "text";
-    content: string;
-    title?: string;
-    session_id?: string;
-    notebook_id?: string;
-    notebook_url?: string;
-    show_browser?: boolean;
-  }): Promise<ToolResult<{ result: AddSourceResult }>> {
+  async handleAddSource(
+    args: {
+      type: "url" | "text";
+      content: string;
+      title?: string;
+      session_id?: string;
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ result: AddSourceResult }>> {
     log.info(`🔧 [TOOL] add_source called (type=${args.type})`);
     const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
     const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
@@ -1010,11 +1022,14 @@ export class ToolHandlers {
           overrideHeadless,
           this.ownerId
         );
-        const result = await session.addSource({
-          type: args.type,
-          content: args.content,
-          title: args.title,
-        });
+        const result = await session.addSource(
+          {
+            type: args.type,
+            content: args.content,
+            title: args.title,
+          },
+          signal
+        );
         return { success: result.success, data: { result } };
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -1027,15 +1042,18 @@ export class ToolHandlers {
   /**
    * Handle generate_audio tool (issue #11).
    */
-  async handleGenerateAudio(args: {
-    custom_prompt?: string;
-    timeout_ms?: number;
-    wait_for_completion?: boolean;
-    session_id?: string;
-    notebook_id?: string;
-    notebook_url?: string;
-    show_browser?: boolean;
-  }): Promise<ToolResult<{ result: AudioGenerationResult }>> {
+  async handleGenerateAudio(
+    args: {
+      custom_prompt?: string;
+      timeout_ms?: number;
+      wait_for_completion?: boolean;
+      session_id?: string;
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ result: AudioGenerationResult }>> {
     log.info(`🔧 [TOOL] generate_audio called`);
     const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
     const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
@@ -1048,11 +1066,14 @@ export class ToolHandlers {
           overrideHeadless,
           this.ownerId
         );
-        const result = await session.generateAudio({
-          customPrompt: args.custom_prompt,
-          timeoutMs: args.timeout_ms,
-          waitForCompletion: args.wait_for_completion ?? false,
-        });
+        const result = await session.generateAudio(
+          {
+            customPrompt: args.custom_prompt,
+            timeoutMs: args.timeout_ms,
+            waitForCompletion: args.wait_for_completion ?? false,
+          },
+          signal
+        );
         // `started` and `in_progress` count as success — the generation is on
         // its way; the caller polls `get_audio_status` for completion.
         const ok =
@@ -1071,12 +1092,15 @@ export class ToolHandlers {
   /**
    * Handle get_audio_status tool — non-blocking poll for Audio Overview state.
    */
-  async handleGetAudioStatus(args: {
-    session_id?: string;
-    notebook_id?: string;
-    notebook_url?: string;
-    show_browser?: boolean;
-  }): Promise<ToolResult<{ result: AudioGenerationResult }>> {
+  async handleGetAudioStatus(
+    args: {
+      session_id?: string;
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ result: AudioGenerationResult }>> {
     log.info(`🔧 [TOOL] get_audio_status called`);
     const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
     const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
@@ -1089,7 +1113,7 @@ export class ToolHandlers {
           overrideHeadless,
           this.ownerId
         );
-        const result = await session.getAudioStatus();
+        const result = await session.getAudioStatus(signal);
         return { success: true, data: { result } };
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
@@ -1102,13 +1126,16 @@ export class ToolHandlers {
   /**
    * Handle download_audio tool (issue #11).
    */
-  async handleDownloadAudio(args: {
-    destination_dir: string;
-    session_id?: string;
-    notebook_id?: string;
-    notebook_url?: string;
-    show_browser?: boolean;
-  }): Promise<ToolResult<{ result: DownloadAudioResult }>> {
+  async handleDownloadAudio(
+    args: {
+      destination_dir: string;
+      session_id?: string;
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ result: DownloadAudioResult }>> {
     log.info(`🔧 [TOOL] download_audio called`);
     const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
     const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
@@ -1122,7 +1149,7 @@ export class ToolHandlers {
           overrideHeadless,
           this.ownerId
         );
-        const result = await session.downloadAudio(args.destination_dir);
+        const result = await session.downloadAudio(args.destination_dir, signal);
         return { success: result.success, data: { result } };
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);

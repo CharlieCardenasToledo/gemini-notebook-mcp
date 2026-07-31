@@ -29,6 +29,7 @@
 
 import type { Page } from "patchright";
 import { Selectors, joinAlt } from "./selectors.js";
+import { UiChangedError } from "../errors.js";
 import { safeSleep, isRecoverable } from "../browser/watchdog.js";
 import { hashLogValue, log } from "../utils/logger.js";
 
@@ -166,7 +167,7 @@ export async function countSources(page: Page): Promise<number> {
   let headerCount = 0;
   try {
     const headerText = await page
-      .locator(".cover-subtitle-source-count")
+      .locator(Selectors.sources.sourceCountIndicator)
       .first()
       .textContent({ timeout: 500 })
       .catch(() => null);
@@ -218,7 +219,7 @@ async function openAddSourceOverlay(page: Page): Promise<void> {
     return;
   }
 
-  throw new Error('Could not open the "Add source" dialog');
+  throw new UiChangedError("sources.dialog");
 }
 
 async function isOverlayVisible(page: Page): Promise<boolean> {
@@ -252,14 +253,8 @@ async function fillSourceContent(page: Page, input: AddSourceInput): Promise<voi
   // animated, so a tight 500 ms wait beats a busy poll).
   await safeSleep(page, 500);
 
-  const inputCandidates = [
-    Selectors.sources.overlayTextarea,
-    Selectors.sources.overlayInput,
-    `${Selectors.sources.overlayPane} textarea:not(.query-box-input):not(.query-box-textarea)`,
-  ];
-
   let target = null;
-  for (const sel of inputCandidates) {
+  for (const sel of Selectors.sources.contentInput) {
     const candidate = page.locator(sel).first();
     if (await candidate.isVisible({ timeout: 2_000 }).catch(() => false)) {
       target = candidate;
@@ -268,10 +263,7 @@ async function fillSourceContent(page: Page, input: AddSourceInput): Promise<voi
   }
 
   if (!target) {
-    throw new Error(
-      "Could not find an input field inside the Add-source overlay. " +
-        "NotebookLM UI may have changed — please file an issue."
-    );
+    throw new UiChangedError("sources.contentInput");
   }
 
   // Title goes in a separate input when one is present; otherwise we prefix
@@ -279,13 +271,7 @@ async function fillSourceContent(page: Page, input: AddSourceInput): Promise<voi
   let body = input.content;
   if (input.title && input.type === "text") {
     let titleInputFound = false;
-    const titleSelectors = [
-      'input[placeholder*="title" i]',
-      'input[placeholder*="name" i]',
-      'input[name="title"]',
-      `${Selectors.sources.overlayPane} input[type="text"]:not([readonly])`,
-    ];
-    for (const sel of titleSelectors) {
+    for (const sel of Selectors.sources.titleInput) {
       const candidate = overlay.locator(sel).first();
       if (await candidate.isVisible({ timeout: 500 }).catch(() => false)) {
         await candidate.fill(input.title).catch(() => undefined);
@@ -316,9 +302,7 @@ async function confirmInsert(page: Page): Promise<void> {
       return;
     }
   }
-  // Fallback: pressing Enter in many flows submits the form.
-  log.warning("  ⚠️  No insert button matched, pressing Enter as fallback");
-  await page.keyboard.press("Enter");
+  throw new UiChangedError("sources.insertConfirm");
 }
 
 /**
@@ -353,14 +337,9 @@ async function waitForSourceCountIncrease(
  * which would otherwise produce nonsense error strings.
  */
 async function readDialogError(page: Page): Promise<string | null> {
-  const errorSelectors = [
-    '[role="alert"]:visible',
-    ".error-message:visible",
-    ".mdc-snackbar--open",
-  ];
   const ICON_LEAKS = ["more_vert", "more_horiz", "open_in_new", "content_copy"];
 
-  for (const sel of errorSelectors) {
+  for (const sel of Selectors.sources.errorMessage) {
     try {
       const el = page.locator(sel).first();
       if (!(await el.isVisible({ timeout: 300 }).catch(() => false))) continue;

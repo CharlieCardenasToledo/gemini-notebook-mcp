@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-07-31
+
+### Added
+
+- Added a versioned selector registry with reusable verification helpers and
+  anonymized English, Spanish, German, and Japanese DOM fixtures.
+- Added request cancellation and total operation timeout boundaries across
+  NotebookLM navigation, questions, citations, sources, audio, account listing,
+  session reset, and interactive authentication.
+- Added `CANCELLED` and consistent `UI_CHANGED` structured errors.
+- Added `NOTEBOOKLM_HTTP_MAX_SESSIONS` with a default limit of 32 concurrent
+  Streamable-HTTP transports.
+- Added adversarial HTTP tests for authentication, Host validation, oversized
+  bodies, unknown sessions, and connection limits.
+- Added an installed-package MCP smoke test that initializes the compiled
+  server and verifies `tools/list` plus the runtime version.
+
+### Changed
+
+- Centralized remaining chat, citation, source, Studio, and Google login
+  selectors instead of duplicating them inside browser modules.
+- Citation extraction now uses a single eight-second total budget rather than
+  adding a complete timeout for every citation.
+- Removed the unsafe Enter-key fallback when the Add Source confirmation
+  control cannot be verified; the operation now returns `UI_CHANGED`.
+- Browser recovery now covers initialization and authentication as well as the
+  final page operation, with one bounded retry only for recoverable crashes.
+
+### Compatibility
+
+- MCP SDK remains on the current stable 1.x line (`1.30.0`). The npm registry
+  did not expose a stable 2.x package during this release, so a major SDK
+  migration was not fabricated or forced into the browser-hardening change.
+
 ## [2.1.3] - 2026-07-31
 
 ### Security

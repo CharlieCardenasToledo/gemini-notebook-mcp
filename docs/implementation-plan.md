@@ -4,7 +4,7 @@ This roadmap turns the security and reliability review into independently releas
 
 ## 2.1.3 — Security and consistency
 
-Status: implemented on `agent/security-hardening-2.1.3`.
+Status: merged into `main` through PR #2.
 
 Scope:
 
@@ -32,6 +32,12 @@ Acceptance criteria:
 - Test questions, DOM fragments, full URLs, account names, and local paths do not appear in default logs.
 
 ## 2.2.0 — Browser robustness and MCP protocol
+
+Status: implemented on `agent/browser-robustness-2.2.0`.
+
+The stable SDK available during implementation remained on 1.x, so the SDK
+major-version migration is intentionally deferred; the selector, cancellation,
+transport, fixture, and package-smoke work is included in this release.
 
 The following work is deliberately separate because it changes browser abstractions or protocol contracts.
 
@@ -108,4 +114,3 @@ For each release:
 4. Merge only after CI passes.
 5. Publish from the merged commit with npm provenance when the registry workflow is configured.
 6. Verify the registry version and tarball integrity after publication.
-

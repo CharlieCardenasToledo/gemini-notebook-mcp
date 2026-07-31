@@ -31,6 +31,8 @@ import {
 } from "../utils/stealth-utils.js";
 import type { ProgressCallback } from "../types.js";
 import { isNotebookLmPageUrl } from "../notebooklm/url.js";
+import { Selectors } from "../notebooklm/selectors.js";
+import { throwIfAborted } from "../utils/operation.js";
 
 /**
  * Critical cookie names for Google authentication
@@ -273,8 +275,13 @@ export class AuthManager {
    *
    * SIMPLE & RELIABLE: Just wait for URL to change to notebooklm.google.com
    */
-  async performLogin(page: Page, sendProgress?: ProgressCallback): Promise<boolean> {
+  async performLogin(
+    page: Page,
+    sendProgress?: ProgressCallback,
+    signal?: AbortSignal
+  ): Promise<boolean> {
     try {
+      throwIfAborted(signal);
       const context = page.context();
       log.info("🌐 Opening Google login page...");
       log.warning("📝 Please login to your Google account");
@@ -299,6 +306,7 @@ export class AuthManager {
 
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
+          throwIfAborted(signal);
           const livePages = context.pages().filter((candidate) => !candidate.isClosed());
           const notebookPage = livePages.find((candidate) => isNotebookLmPageUrl(candidate.url()));
           const elapsedSeconds = Math.floor(attempt * (checkIntervalMs / 1000));
@@ -339,6 +347,7 @@ export class AuthManager {
 
           await wait(checkIntervalMs);
         } catch (error) {
+          throwIfAborted(signal);
           log.warning(`⚠️  Login check failed temporarily: ${error}`);
           await wait(checkIntervalMs);
           continue;
@@ -358,6 +367,7 @@ export class AuthManager {
       log.error("❌ Login verification failed - timeout reached");
       return false;
     } catch (error) {
+      throwIfAborted(signal);
       log.error(`❌ Login failed: ${error}`);
       return false;
     }
@@ -614,16 +624,10 @@ export class AuthManager {
   private async fillIdentifier(page: Page, email: string): Promise<boolean> {
     log.info("    📧 Looking for email field...");
 
-    const emailSelectors = [
-      "input#identifierId",
-      "input[name='identifier']",
-      "input[type='email']",
-    ];
-
     let emailSelector: string | null = null;
     let emailField: ElementHandle<Element> | null = null;
 
-    for (const selector of emailSelectors) {
+    for (const selector of Selectors.auth.emailInput) {
       try {
         const candidate = await page.waitForSelector(selector, {
           state: "attached",
@@ -703,14 +707,8 @@ export class AuthManager {
     // Click Next button
     log.info("    🔘 Looking for Next button...");
 
-    const nextSelectors = [
-      "button:has-text('Next')",
-      "button:has-text('Weiter')",
-      "#identifierNext",
-    ];
-
     let nextClicked = false;
-    for (const selector of nextSelectors) {
+    for (const selector of Selectors.auth.identifierNext) {
       try {
         const button = await page.locator(selector);
         if ((await button.count()) > 0) {
@@ -741,12 +739,10 @@ export class AuthManager {
   private async fillPassword(page: Page, password: string): Promise<boolean> {
     log.info("    🔐 Looking for password field...");
 
-    const passwordSelectors = ["input[name='Passwd']", "input[type='password']"];
-
     let passwordSelector: string | null = null;
     let passwordField: ElementHandle<Element> | null = null;
 
-    for (const selector of passwordSelectors) {
+    for (const selector of Selectors.auth.passwordInput) {
       try {
         passwordField = await page.$(selector);
         if (passwordField) {
@@ -802,14 +798,8 @@ export class AuthManager {
     // Click Next button
     log.info("    🔘 Looking for Next button...");
 
-    const pwdNextSelectors = [
-      "button:has-text('Next')",
-      "button:has-text('Weiter')",
-      "#passwordNext",
-    ];
-
     let pwdNextClicked = false;
-    for (const selector of pwdNextSelectors) {
+    for (const selector of Selectors.auth.passwordNext) {
       try {
         const button = await page.locator(selector);
         if ((await button.count()) > 0) {
@@ -902,7 +892,8 @@ export class AuthManager {
    */
   async performSetup(
     sendProgress?: ProgressCallback,
-    overrideHeadless?: boolean
+    overrideHeadless?: boolean,
+    signal?: AbortSignal
   ): Promise<boolean> {
     const { chromium } = await import("patchright");
 
@@ -910,7 +901,10 @@ export class AuthManager {
     // overrideHeadless contains show_browser value (true = show, false = hide)
     const shouldShowBrowser = overrideHeadless !== undefined ? overrideHeadless : true;
 
+    let context: BrowserContext | undefined;
+    let abortListener: (() => void) | undefined;
     try {
+      throwIfAborted(signal);
       log.info("🚀 Launching persistent browser for interactive setup...");
       log.diagnostic("Interactive profile path", getRuntimeConfig().chromeProfileDir);
       await sendProgress?.("Launching persistent browser...", 1, 10);
@@ -931,7 +925,6 @@ export class AuthManager {
         ],
       };
       const preferred = getPreferredChannel();
-      let context: BrowserContext;
       try {
         context = await chromium.launchPersistentContext(
           getRuntimeConfig().chromeProfileDir,
@@ -949,12 +942,18 @@ export class AuthManager {
         }
       }
 
+      abortListener = () => {
+        void context?.close().catch(() => undefined);
+      };
+      signal?.addEventListener("abort", abortListener, { once: true });
+      throwIfAborted(signal);
+
       // Get or create a page
       const pages = context.pages();
       const page = pages.length > 0 ? pages[0] : await context.newPage();
 
       // Perform login with progress updates
-      const loginSuccess = await this.performLogin(page, sendProgress);
+      const loginSuccess = await this.performLogin(page, sendProgress, signal);
 
       if (loginSuccess) {
         // ✅ Save browser state to state.json (for validation & backup)
@@ -972,13 +971,14 @@ export class AuthManager {
         log.info("💡 Session cookies will now persist across restarts!");
       }
 
-      // Close persistent context
-      await context.close();
-
       return loginSuccess;
     } catch (error) {
+      throwIfAborted(signal);
       log.error(`❌ Setup failed: ${error}`);
       return false;
+    } finally {
+      if (signal && abortListener) signal.removeEventListener("abort", abortListener);
+      await context?.close().catch(() => undefined);
     }
   }
 

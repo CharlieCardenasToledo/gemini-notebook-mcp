@@ -18,7 +18,7 @@ import type { SharedContextManager } from "./shared-context-manager.js";
 import type { AuthManager } from "../auth/auth-manager.js";
 import { humanType, randomDelay, randomInt } from "../utils/stealth-utils.js";
 import { waitForStableAnswer, snapshotPriorAnswers } from "../notebooklm/chat.js";
-import { Selectors, joinAlt } from "../notebooklm/selectors.js";
+import { Selectors, findVisibleSelector, joinAlt } from "../notebooklm/selectors.js";
 import {
   extractCitations as extractCitationsFromPage,
   type SourceFormat,
@@ -40,7 +40,16 @@ import {
 import { getRuntimeConfig } from "../config.js";
 import { hashLogValue, log } from "../utils/logger.js";
 import type { SessionInfo, ProgressCallback } from "../types.js";
-import { RateLimitError } from "../errors.js";
+import { RateLimitError, UiChangedError } from "../errors.js";
+import {
+  runWithOperationBoundary,
+  throwIfAborted,
+  type OperationBoundaryOptions,
+} from "../utils/operation.js";
+
+interface BrowserOperationOptions extends OperationBoundaryOptions {
+  retryRecoverable?: boolean;
+}
 
 export class BrowserSession {
   public readonly sessionId: string;
@@ -183,30 +192,15 @@ export class BrowserSession {
     }
 
     try {
-      // PRIMARY: Exact Python selector - textarea.query-box-input
-      log.info("  ⏳ Waiting for chat input (textarea.query-box-input)...");
-      await this.page.waitForSelector("textarea.query-box-input", {
-        timeout: 10000, // Python uses 10s timeout
-        state: "visible", // ONLY check visibility (NO disabled check!)
+      log.info("  ⏳ Waiting for a verified chat input...");
+      await this.page.waitForSelector(joinAlt(Selectors.chat.queryInput), {
+        timeout: 15_000,
+        state: "visible",
       });
       log.success("  ✅ Chat input ready!");
-    } catch {
-      // FALLBACK: Python alternative selector
-      try {
-        log.info("  ⏳ Trying fallback selector (aria-label)...");
-        await this.page.waitForSelector('textarea[aria-label="Feld für Anfragen"]', {
-          timeout: 5000, // Python uses 5s for fallback
-          state: "visible",
-        });
-        log.success("  ✅ Chat input ready (fallback)!");
-      } catch (error) {
-        log.error(`  ❌ NotebookLM interface not ready: ${error}`);
-        throw new Error(
-          "Could not find NotebookLM chat input. " +
-            "Please ensure the notebook page has loaded correctly.",
-          { cause: error }
-        );
-      }
+    } catch (error) {
+      log.diagnostic("chat.queryInput verification failure", String(error));
+      throw new UiChangedError("chat.queryInput");
     }
   }
 
@@ -383,8 +377,10 @@ export class BrowserSession {
   /**
    * Ask a question to NotebookLM
    */
-  private runExclusive<T>(operation: () => Promise<T>): Promise<T> {
+  private runExclusive<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    throwIfAborted(signal);
     const result = this.operationTail.then(async () => {
+      throwIfAborted(signal);
       this.updateActivity();
       return await operation();
     });
@@ -395,46 +391,36 @@ export class BrowserSession {
     return result;
   }
 
-  async ask(question: string, sendProgress?: ProgressCallback): Promise<string> {
-    return await this.runExclusive(() => this.askUnlocked(question, sendProgress));
+  async ask(
+    question: string,
+    sendProgress?: ProgressCallback,
+    signal?: AbortSignal
+  ): Promise<string> {
+    return await this.runExclusive(() => this.askUnlocked(question, sendProgress, signal), signal);
   }
 
   async askAndExtractCitations(
     question: string,
     format: SourceFormat,
-    sendProgress?: ProgressCallback
+    sendProgress?: ProgressCallback,
+    signal?: AbortSignal
   ): Promise<ExtractCitationsResult> {
     return await this.runExclusive(async () => {
-      const answer = await this.askUnlocked(question, sendProgress);
-      return await this.extractCitationsUnlocked(answer, format);
-    });
+      const answer = await this.askUnlocked(question, sendProgress, signal);
+      return await this.extractCitationsUnlocked(answer, format, signal);
+    }, signal);
   }
 
-  private async askUnlocked(question: string, sendProgress?: ProgressCallback): Promise<string> {
+  private async askUnlocked(
+    question: string,
+    sendProgress?: ProgressCallback,
+    signal?: AbortSignal
+  ): Promise<string> {
     const config = getRuntimeConfig();
-    const askOnce = async (): Promise<string> => {
-      if (!this.initialized || !this.page || this.isPageClosedSafe()) {
-        log.warning(`  ℹ️  Session not initialized or page missing → re-initializing...`);
-        await this.init();
-      }
-
+    const askOnce = async (page: Page): Promise<string> => {
       log.info(
         `💬 [${hashLogValue(this.sessionId)}] Asking question (${question.length} characters)`
       );
-      const page = this.page!;
-      // Ensure we're still authenticated
-      await sendProgress?.("Verifying authentication...", 2, 5);
-      const isAuth =
-        (await this.authManager.validateCookiesExpiry(this.context)) &&
-        !this.isAuthenticationPage();
-      if (!isAuth) {
-        log.warning(`  🔑 Session expired, re-authenticating...`);
-        await sendProgress?.("Re-authenticating session...", 2, 5);
-        const reAuthSuccess = await this.ensureAuthenticated();
-        if (!reAuthSuccess) {
-          throw new Error("Failed to re-authenticate session");
-        }
-      }
 
       // Hydrate and snapshot existing responses BEFORE asking. The current
       // NotebookLM UI virtualises history, so the textarea can be visible
@@ -446,10 +432,7 @@ export class BrowserSession {
       // Find the chat input
       const inputSelector = await this.findChatInput();
       if (!inputSelector) {
-        throw new Error(
-          "Could not find visible chat input element. " +
-            "Please check if the notebook page has loaded correctly."
-        );
+        throw new UiChangedError("chat.queryInput");
       }
 
       log.info(`  ⌨️  Typing question with human-like behavior...`);
@@ -526,32 +509,11 @@ export class BrowserSession {
       return answer;
     };
 
-    try {
-      return await askOnce();
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      if (/has been closed|Target .* closed|Browser has been closed|Context .* closed/i.test(msg)) {
-        log.warning(`  ♻️  Detected closed page/context. Recovering session and retrying ask...`);
-        try {
-          this.initialized = false;
-          if (this.page) {
-            try {
-              await this.page.close();
-            } catch {
-              /* page already gone */
-            }
-          }
-          this.page = null;
-          await this.init();
-          return await askOnce();
-        } catch (e2) {
-          log.error(`❌ Recovery failed: ${e2}`);
-          throw e2;
-        }
-      }
-      log.error(`❌ [${hashLogValue(this.sessionId)}] Failed to ask question: ${msg}`);
-      throw error;
-    }
+    await sendProgress?.("Verifying authentication...", 2, 5);
+    return await this.withAuthenticatedNotebookPage("ask_question", askOnce, {
+      signal,
+      timeoutMs: config.answerTimeoutMs + 60_000,
+    });
   }
 
   /**
@@ -559,84 +521,138 @@ export class BrowserSession {
    * (issue #25). Lazily initialises the session so the caller can use this
    * without first running `ask()`.
    */
-  async addSource(input: AddSourceInput): Promise<AddSourceResult> {
-    return await this.runExclusive(() => this.addSourceUnlocked(input));
+  async addSource(input: AddSourceInput, signal?: AbortSignal): Promise<AddSourceResult> {
+    return await this.runExclusive(() => this.addSourceUnlocked(input, signal), signal);
   }
 
-  private async addSourceUnlocked(input: AddSourceInput): Promise<AddSourceResult> {
-    return await this.withAuthenticatedNotebookPage("add_source", (page) =>
-      addSourceToPage(page, input)
+  private async addSourceUnlocked(
+    input: AddSourceInput,
+    signal?: AbortSignal
+  ): Promise<AddSourceResult> {
+    return await this.withAuthenticatedNotebookPage(
+      "add_source",
+      (page) => addSourceToPage(page, input),
+      { signal, timeoutMs: 120_000 }
     );
   }
 
   /**
    * Generate an Audio Overview for the active notebook (issue #11).
    */
-  async generateAudio(options: GenerateAudioOptions = {}): Promise<AudioGenerationResult> {
-    return await this.runExclusive(() => this.generateAudioUnlocked(options));
+  async generateAudio(
+    options: GenerateAudioOptions = {},
+    signal?: AbortSignal
+  ): Promise<AudioGenerationResult> {
+    return await this.runExclusive(() => this.generateAudioUnlocked(options, signal), signal);
   }
 
   private async generateAudioUnlocked(
-    options: GenerateAudioOptions = {}
+    options: GenerateAudioOptions = {},
+    signal?: AbortSignal
   ): Promise<AudioGenerationResult> {
-    return await this.withAuthenticatedNotebookPage("generate_audio", (page) =>
-      generateAudioOnPage(page, options)
+    return await this.withAuthenticatedNotebookPage(
+      "generate_audio",
+      (page) => generateAudioOnPage(page, options),
+      { signal, timeoutMs: (options.timeoutMs ?? 600_000) + 30_000 }
     );
   }
 
   /**
    * Non-blocking probe for the current Audio Overview state (issue #11).
    */
-  async getAudioStatus(): Promise<AudioGenerationResult> {
-    return await this.runExclusive(() => this.getAudioStatusUnlocked());
+  async getAudioStatus(signal?: AbortSignal): Promise<AudioGenerationResult> {
+    return await this.runExclusive(() => this.getAudioStatusUnlocked(signal), signal);
   }
 
-  private async getAudioStatusUnlocked(): Promise<AudioGenerationResult> {
-    return await this.withAuthenticatedNotebookPage("get_audio_status", (page) =>
-      getAudioStatusOnPage(page)
+  private async getAudioStatusUnlocked(signal?: AbortSignal): Promise<AudioGenerationResult> {
+    return await this.withAuthenticatedNotebookPage(
+      "get_audio_status",
+      (page) => getAudioStatusOnPage(page),
+      { signal, timeoutMs: 30_000 }
     );
   }
 
   /**
    * Download the most recent Audio Overview (issue #11).
    */
-  async downloadAudio(destinationDir: string): Promise<DownloadAudioResult> {
-    return await this.runExclusive(() => this.downloadAudioUnlocked(destinationDir));
+  async downloadAudio(destinationDir: string, signal?: AbortSignal): Promise<DownloadAudioResult> {
+    return await this.runExclusive(
+      () => this.downloadAudioUnlocked(destinationDir, signal),
+      signal
+    );
   }
 
-  private async downloadAudioUnlocked(destinationDir: string): Promise<DownloadAudioResult> {
-    return await this.withAuthenticatedNotebookPage("download_audio", (page) =>
-      downloadAudioOnPage(page, destinationDir)
+  private async downloadAudioUnlocked(
+    destinationDir: string,
+    signal?: AbortSignal
+  ): Promise<DownloadAudioResult> {
+    return await this.withAuthenticatedNotebookPage(
+      "download_audio",
+      (page) => downloadAudioOnPage(page, destinationDir),
+      { signal, timeoutMs: 90_000 }
     );
   }
 
   private async withAuthenticatedNotebookPage<T>(
     operationName: string,
-    operation: (page: Page) => Promise<T>
+    operation: (page: Page) => Promise<T>,
+    options: BrowserOperationOptions = {}
   ): Promise<T> {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        if (
-          !this.initialized ||
-          !this.page ||
-          this.isPageClosedSafe() ||
-          this.isAuthenticationPage()
-        ) {
-          if (this.page && !this.isPageClosedSafe()) {
-            await this.page.close().catch(() => undefined);
+        return await runWithOperationBoundary(
+          operationName,
+          async () => {
+            if (
+              !this.initialized ||
+              !this.page ||
+              this.isPageClosedSafe() ||
+              this.isAuthenticationPage()
+            ) {
+              if (this.page && !this.isPageClosedSafe()) {
+                await this.page.close().catch(() => undefined);
+              }
+              this.page = null;
+              this.initialized = false;
+              await this.init();
+            }
+
+            if (!this.page || this.isAuthenticationPage()) {
+              throw new Error("AUTH_REQUIRED: Google requested sign-in");
+            }
+
+            const cookiesAreValid = await this.authManager.validateCookiesExpiry(this.context);
+            if (!cookiesAreValid) {
+              const restored = await this.ensureAuthenticated();
+              if (!restored || !this.page || this.isAuthenticationPage()) {
+                throw new Error("AUTH_REQUIRED: Google requested sign-in");
+              }
+            }
+
+            await this.dismissUnexpectedOverlays();
+            if (!this.page) {
+              throw new Error("BROWSER_CRASHED: NotebookLM page is unavailable");
+            }
+            return await operation(this.page);
+          },
+          {
+            signal: options.signal,
+            timeoutMs: options.timeoutMs,
+            onInterrupt: async () => {
+              if (this.page && !this.isPageClosedSafe()) {
+                await this.page.close().catch(() => undefined);
+              }
+              this.page = null;
+              this.initialized = false;
+            },
           }
-          this.page = null;
-          this.initialized = false;
-          await this.init();
-        }
-
-        if (!this.page || this.isAuthenticationPage()) {
-          throw new Error("AUTH_REQUIRED: Google requested sign-in");
-        }
-
-        return await operation(this.page);
+        );
       } catch (error) {
-        if (attempt === 0 && isRecoverableBrowserOperationError(error)) {
+        if (
+          attempt === 0 &&
+          options.retryRecoverable !== false &&
+          isRecoverableBrowserOperationError(error)
+        ) {
           log.warning(`  ♻️  Recovering browser before retrying ${operationName}`);
           if (this.page && !this.isPageClosedSafe()) {
             await this.page.close().catch(() => undefined);
@@ -651,25 +667,43 @@ export class BrowserSession {
     throw new Error(`${operationName} failed after browser recovery`);
   }
 
+  private async dismissUnexpectedOverlays(): Promise<void> {
+    if (!this.page) return;
+    const dialog = this.page.locator(Selectors.chat.dialog).first();
+    if (await dialog.isVisible({ timeout: 250 }).catch(() => false)) {
+      await this.page.keyboard.press("Escape").catch(() => undefined);
+      await this.page.waitForTimeout(150).catch(() => undefined);
+    }
+  }
+
   /**
    * Pull DOM-level citations from the most recent answer on this session's
    * page (issue #20). Must be called immediately after `ask()` — before any
    * follow-up question disturbs the source panel.
    */
-  async extractCitations(answer: string, format: SourceFormat): Promise<ExtractCitationsResult> {
-    return await this.runExclusive(() => this.extractCitationsUnlocked(answer, format));
+  async extractCitations(
+    answer: string,
+    format: SourceFormat,
+    signal?: AbortSignal
+  ): Promise<ExtractCitationsResult> {
+    return await this.runExclusive(
+      () => this.extractCitationsUnlocked(answer, format, signal),
+      signal
+    );
   }
 
   private async extractCitationsUnlocked(
     answer: string,
-    format: SourceFormat
+    format: SourceFormat,
+    signal?: AbortSignal
   ): Promise<ExtractCitationsResult> {
     if (format === "none" || !this.page || this.isPageClosedSafe()) {
       return { citations: [], formattedAnswer: answer };
     }
     try {
-      return await extractCitationsFromPage(this.page, answer, format);
+      return await extractCitationsFromPage(this.page, answer, format, { signal });
     } catch (err) {
+      throwIfAborted(signal);
       log.warning(`  ⚠️  Citation extraction failed: ${err}`);
       return { citations: [], formattedAnswer: answer };
     }
@@ -689,31 +723,8 @@ export class BrowserSession {
       return null;
     }
 
-    const selectors = [
-      // Stable class — language-agnostic.
-      "textarea.query-box-input",
-      // Locale-bound aria-label fallbacks for older builds.
-      'textarea[aria-label="Feld für Anfragen"]',
-      'textarea[aria-label*="anfrag" i]',
-      'textarea[aria-label*="query" i]',
-      'textarea[aria-label*="zone de requete" i]',
-      'textarea[aria-label*="requete" i]',
-      'textarea[aria-label*="consulta" i]',
-      'textarea[aria-label*="domanda" i]',
-    ];
-
     const tryFind = async (): Promise<string | null> => {
-      for (const selector of selectors) {
-        try {
-          const element = await this.page!.$(selector);
-          if (element && (await element.isVisible())) {
-            return selector;
-          }
-        } catch {
-          continue;
-        }
-      }
-      return null;
+      return await findVisibleSelector(this.page!, "chat.queryInput", 300);
     };
 
     let hit = await tryFind();
@@ -787,17 +798,6 @@ export class BrowserSession {
     }
 
     // Error message selectors (common patterns for error containers)
-    const errorSelectors = [
-      ".error-message",
-      ".error-container",
-      "[role='alert']",
-      ".rate-limit-message",
-      "[data-error]",
-      ".notification-error",
-      ".alert-error",
-      ".toast-error",
-    ];
-
     // Keywords that indicate rate limiting
     const keywords = [
       "rate limit",
@@ -813,7 +813,7 @@ export class BrowserSession {
     ];
 
     // Check error containers for rate limit messages
-    for (const selector of errorSelectors) {
+    for (const selector of Selectors.chat.rateLimitContainers) {
       try {
         const elements = await this.page.$$(selector);
         for (const el of elements) {
@@ -837,7 +837,7 @@ export class BrowserSession {
 
     // Also check if chat input is disabled (sometimes NotebookLM disables input when rate limited)
     try {
-      const inputSelector = "textarea.query-box-input";
+      const inputSelector = joinAlt(Selectors.chat.queryInput);
       const input = await this.page.$(inputSelector);
       if (input) {
         const isDisabled = await input.evaluate((el) => {
@@ -874,8 +874,22 @@ export class BrowserSession {
   /**
    * Reset the chat history (start a new conversation)
    */
-  async reset(): Promise<void> {
-    return await this.runExclusive(() => this.resetUnlocked());
+  async reset(signal?: AbortSignal): Promise<void> {
+    return await this.runExclusive(
+      () =>
+        runWithOperationBoundary("reset_session", () => this.resetUnlocked(), {
+          signal,
+          timeoutMs: 60_000,
+          onInterrupt: async () => {
+            if (this.page && !this.isPageClosedSafe()) {
+              await this.page.close().catch(() => undefined);
+            }
+            this.page = null;
+            this.initialized = false;
+          },
+        }),
+      signal
+    );
   }
 
   private async resetUnlocked(): Promise<void> {

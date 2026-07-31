@@ -390,6 +390,7 @@ All configuration is via environment variables and tool parameters. There is no 
 | `NOTEBOOKLM_ALLOWED_HOSTS` | loopback hosts | Comma-separated HTTP Host allowlist. |
 | `NOTEBOOKLM_ALLOWED_ORIGINS` | loopback origins | Comma-separated browser Origin allowlist. |
 | `NOTEBOOKLM_HTTP_MAX_BODY_BYTES` | `1048576` | Maximum HTTP request body size. |
+| `NOTEBOOKLM_HTTP_MAX_SESSIONS` | `32` | Maximum concurrent Streamable-HTTP sessions. |
 | `NOTEBOOKLM_ACCOUNT` | _(unset)_ | Multi-account profile slug. |
 | `NOTEBOOKLM_PROFILE` | `full` | Tool profile (`minimal` / `standard` / `full`). |
 | `NOTEBOOKLM_DISABLED_TOOLS` | _(unset)_ | Comma-separated tool names to suppress. |

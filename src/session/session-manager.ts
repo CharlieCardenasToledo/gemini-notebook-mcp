@@ -21,6 +21,8 @@ import type { SessionInfo } from "../types.js";
 import { randomUUID } from "node:crypto";
 import { normalizeNotebookUrl } from "../notebooklm/url.js";
 import { Selectors } from "../notebooklm/selectors.js";
+import { UiChangedError } from "../errors.js";
+import { runWithOperationBoundary } from "../utils/operation.js";
 
 const NOTEBOOKLM_HOME_URL = "https://notebook.google.com/";
 
@@ -275,58 +277,70 @@ export class SessionManager {
    * visible name and the "date · N sources" line. The id comes straight from
    * `href` — no need to click through and read it back from the URL.
    */
-  async listAccountNotebooks(): Promise<AccountNotebookSummary[]> {
+  async listAccountNotebooks(signal?: AbortSignal): Promise<AccountNotebookSummary[]> {
     const context = await this.sharedContextManager.getOrCreateContext();
     const page = await context.newPage();
     const timeout = getRuntimeConfig().browserTimeout;
     try {
-      await page.goto(NOTEBOOKLM_HOME_URL, { waitUntil: "domcontentloaded", timeout });
-      if (/accounts\.google\.com/i.test(page.url())) {
-        throw new Error(
-          "NotebookLM MCP no está autenticado. Ejecuta setup_auth antes de listar los notebooks de la cuenta."
-        );
-      }
-
-      // Angular hydrates the grid after domcontentloaded (same class of race
-      // already documented for the chat page).
-      const cardSelector = Selectors.notebooks.projectCard;
-      try {
-        await page.waitForSelector(cardSelector, { timeout: 12000 });
-      } catch {
-        const diagnostics = await page
-          .evaluate(() => ({ title: document.title, body: document.body.innerText.slice(0, 800) }))
-          .catch(() => ({ title: "", body: "" }));
-        log.warning("  UI_CHANGED: NotebookLM home grid could not be detected");
-        log.diagnostic(
-          "list_account_notebooks selector diagnostics",
-          JSON.stringify({ selector: cardSelector, url: page.url(), ...diagnostics })
-        );
-        throw new Error(
-          "UI_CHANGED: NotebookLM home grid could not be detected; update selector group notebooks.projectCard"
-        );
-      }
-
-      return await page.$$eval(cardSelector, (anchors) =>
-        anchors
-          .map((anchor) => {
-            const id =
-              (anchor.getAttribute("href") || "").match(/\/notebook\/([^/?#]+)/)?.[1] || "";
-            if (!id) return null;
-            const name = document.getElementById(`project-${id}-title`)?.textContent?.trim() || "";
-            const subtitle =
-              document.getElementById(`project-${id}-subtitle`)?.textContent?.trim() || "";
-            const sourceMatch = subtitle.match(
-              /(\d+)\s*(fuentes?|sources?|quellen|fonti|fontes|bronnen|ソース)/i
+      return await runWithOperationBoundary(
+        "list_account_notebooks",
+        async () => {
+          await page.goto(NOTEBOOKLM_HOME_URL, { waitUntil: "domcontentloaded", timeout });
+          if (/accounts\.google\.com/i.test(page.url())) {
+            throw new Error(
+              "NotebookLM MCP no está autenticado. Ejecuta setup_auth antes de listar los notebooks de la cuenta."
             );
-            return {
-              id,
-              name,
-              url: `https://notebook.google.com/notebook/${id}`,
-              lastModified: subtitle,
-              sourceCount: sourceMatch ? Number(sourceMatch[1]) : null,
-            };
-          })
-          .filter((entry): entry is AccountNotebookSummary => Boolean(entry && entry.name))
+          }
+
+          // Angular hydrates the grid after domcontentloaded (same class of race
+          // already documented for the chat page).
+          const cardSelector = Selectors.notebooks.projectCard;
+          try {
+            await page.waitForSelector(cardSelector, { timeout: 12000 });
+          } catch {
+            const diagnostics = await page
+              .evaluate(() => ({
+                title: document.title,
+                body: document.body.innerText.slice(0, 800),
+              }))
+              .catch(() => ({ title: "", body: "" }));
+            log.warning("  UI_CHANGED: NotebookLM home grid could not be detected");
+            log.diagnostic(
+              "list_account_notebooks selector diagnostics",
+              JSON.stringify({ selector: cardSelector, url: page.url(), ...diagnostics })
+            );
+            throw new UiChangedError("notebooks.projectCard");
+          }
+
+          return await page.$$eval(cardSelector, (anchors) =>
+            anchors
+              .map((anchor) => {
+                const id =
+                  (anchor.getAttribute("href") || "").match(/\/notebook\/([^/?#]+)/)?.[1] || "";
+                if (!id) return null;
+                const name =
+                  document.getElementById(`project-${id}-title`)?.textContent?.trim() || "";
+                const subtitle =
+                  document.getElementById(`project-${id}-subtitle`)?.textContent?.trim() || "";
+                const sourceMatch = subtitle.match(
+                  /(\d+)\s*(fuentes?|sources?|quellen|fonti|fontes|bronnen|ソース)/i
+                );
+                return {
+                  id,
+                  name,
+                  url: `https://notebook.google.com/notebook/${id}`,
+                  lastModified: subtitle,
+                  sourceCount: sourceMatch ? Number(sourceMatch[1]) : null,
+                };
+              })
+              .filter((entry): entry is AccountNotebookSummary => Boolean(entry && entry.name))
+          );
+        },
+        {
+          signal,
+          timeoutMs: timeout + 15_000,
+          onInterrupt: () => page.close().catch(() => undefined),
+        }
       );
     } finally {
       await page.close().catch(() => {});

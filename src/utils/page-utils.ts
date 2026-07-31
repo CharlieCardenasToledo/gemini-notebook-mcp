@@ -15,6 +15,7 @@
 
 import type { Page } from "patchright";
 import { log } from "./logger.js";
+import { Selectors } from "../notebooklm/selectors.js";
 
 /**
  * Snapshot ALL existing assistant response texts.
@@ -22,14 +23,12 @@ import { log } from "./logger.js";
  */
 export async function snapshotAllResponses(page: Page): Promise<string[]> {
   const allTexts: string[] = [];
-  const primarySelector = ".to-user-container";
-
   try {
-    const containers = await page.$$(primarySelector);
+    const containers = await page.$$(Selectors.chat.answerContainer);
     if (containers.length > 0) {
       for (const container of containers) {
         try {
-          const textElement = await container.$(".message-text-content");
+          const textElement = await container.$(Selectors.chat.messageText);
           if (textElement) {
             const text = await textElement.innerText();
             if (text && text.trim()) {
