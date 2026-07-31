@@ -1,5 +1,9 @@
 # Tools
 
+Browser-backed calls honor MCP request cancellation. Cancellation returns a
+structured `CANCELLED` error; an unverified required selector returns
+`UI_CHANGED` instead of an ambiguous empty result.
+
 Every tool registered in the current 2.x release, with parameter schema, an example invocation (MCP `tools/call` arguments shape), and the expected return shape.
 
 The server returns each tool result wrapped as `{ "success": true, "data": <object> }` (or `{ "success": false, "error": <string> }`). The shapes below describe the inner `data`.

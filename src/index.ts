@@ -275,7 +275,8 @@ class NotebookLMMCPServer {
                 show_browser?: boolean;
                 source_format?: "none" | "inline" | "footnotes" | "json";
               },
-              sendProgress
+              sendProgress,
+              extra.signal
             );
             break;
 
@@ -298,7 +299,7 @@ class NotebookLMMCPServer {
             break;
 
           case "list_account_notebooks":
-            result = await toolHandlers.handleListAccountNotebooks();
+            result = await toolHandlers.handleListAccountNotebooks(extra.signal);
             break;
 
           case "get_notebook":
@@ -345,7 +346,10 @@ class NotebookLMMCPServer {
             break;
 
           case "reset_session":
-            result = await toolHandlers.handleResetSession(args as { session_id: string });
+            result = await toolHandlers.handleResetSession(
+              args as { session_id: string },
+              extra.signal
+            );
             break;
 
           case "get_health":
@@ -355,14 +359,16 @@ class NotebookLMMCPServer {
           case "setup_auth":
             result = await toolHandlers.handleSetupAuth(
               args as { show_browser?: boolean },
-              sendProgress
+              sendProgress,
+              extra.signal
             );
             break;
 
           case "re_auth":
             result = await toolHandlers.handleReAuth(
               args as { show_browser?: boolean },
-              sendProgress
+              sendProgress,
+              extra.signal
             );
             break;
 
@@ -385,7 +391,8 @@ class NotebookLMMCPServer {
                 session_id?: string;
                 notebook_id?: string;
                 notebook_url?: string;
-              }
+              },
+              extra.signal
             );
             break;
 
@@ -399,7 +406,8 @@ class NotebookLMMCPServer {
                 notebook_id?: string;
                 notebook_url?: string;
                 show_browser?: boolean;
-              }
+              },
+              extra.signal
             );
             break;
 
@@ -410,7 +418,8 @@ class NotebookLMMCPServer {
                 notebook_id?: string;
                 notebook_url?: string;
                 show_browser?: boolean;
-              }
+              },
+              extra.signal
             );
             break;
 
@@ -422,7 +431,8 @@ class NotebookLMMCPServer {
                 notebook_id?: string;
                 notebook_url?: string;
                 show_browser?: boolean;
-              }
+              },
+              extra.signal
             );
             break;
 
@@ -582,6 +592,7 @@ class NotebookLMMCPServer {
           process.env.NOTEBOOKLM_HTTP_MAX_BODY_BYTES,
           1024 * 1024
         ),
+        maxSessions: parsePositiveIntegerEnv(process.env.NOTEBOOKLM_HTTP_MAX_SESSIONS, 32),
         connect: async (transport) => {
           const server = this.createProtocolServer();
           try {

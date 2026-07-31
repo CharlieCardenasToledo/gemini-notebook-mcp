@@ -16,7 +16,7 @@
  */
 
 import type { Page } from "patchright";
-import { Selectors } from "./selectors.js";
+import { Selectors, joinAlt } from "./selectors.js";
 import { isRecoverable, pageIsAlive, safeSleep } from "../browser/watchdog.js";
 import { log } from "../utils/logger.js";
 
@@ -512,88 +512,106 @@ async function readAnswerForQuestion(page: Page, question: string): Promise<Turn
   const messages = page.locator(Selectors.chat.message);
 
   try {
-    const match = await messages.evaluateAll((elements, expectedText) => {
-      const normalize = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim();
-      const correlate = (value: string) =>
-        normalize(value)
-          .normalize("NFKD")
-          .replace(/\p{M}/gu, "")
-          .toLowerCase()
-          .replace(/[^\p{L}\p{N}]+/gu, " ")
-          .trim();
-      const matches = (rendered: string, submitted: string) => {
-        const normalizedRendered = normalize(rendered);
-        if (normalizedRendered === submitted) return true;
+    const match = await messages.evaluateAll(
+      (elements, selectorContext) => {
+        const {
+          expectedText,
+          citationSelector,
+          userSelector,
+          answerSelector,
+          messageTextSelector,
+          messageActionsSelector,
+        } = selectorContext;
+        const normalize = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim();
+        const correlate = (value: string) =>
+          normalize(value)
+            .normalize("NFKD")
+            .replace(/\p{M}/gu, "")
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}]+/gu, " ")
+            .trim();
+        const matches = (rendered: string, submitted: string) => {
+          const normalizedRendered = normalize(rendered);
+          if (normalizedRendered === submitted) return true;
 
-        const renderedCorrelation = correlate(normalizedRendered);
-        const submittedCorrelation = correlate(submitted);
-        if (renderedCorrelation === submittedCorrelation) return true;
+          const renderedCorrelation = correlate(normalizedRendered);
+          const submittedCorrelation = correlate(submitted);
+          if (renderedCorrelation === submittedCorrelation) return true;
 
-        const renderedTokens = new Set(renderedCorrelation.split(" ").filter(Boolean));
-        const submittedTokens = new Set(submittedCorrelation.split(" ").filter(Boolean));
-        if (Math.min(renderedTokens.size, submittedTokens.size) < 4) return false;
+          const renderedTokens = new Set(renderedCorrelation.split(" ").filter(Boolean));
+          const submittedTokens = new Set(submittedCorrelation.split(" ").filter(Boolean));
+          if (Math.min(renderedTokens.size, submittedTokens.size) < 4) return false;
 
-        let overlap = 0;
-        for (const token of renderedTokens) {
-          if (submittedTokens.has(token)) overlap++;
-        }
-        return overlap / Math.max(renderedTokens.size, submittedTokens.size) >= 0.75;
-      };
-      const extractText = (textElement: Element) => {
-        const clone = textElement.cloneNode(true) as HTMLElement;
+          let overlap = 0;
+          for (const token of renderedTokens) {
+            if (submittedTokens.has(token)) overlap++;
+          }
+          return overlap / Math.max(renderedTokens.size, submittedTokens.size) >= 0.75;
+        };
+        const extractText = (textElement: Element) => {
+          const clone = textElement.cloneNode(true) as HTMLElement;
 
-        clone.querySelectorAll("button.citation-marker").forEach((button) => {
-          const label = (button.textContent || "").trim();
-          button.replaceWith(document.createTextNode(/^\d+$/.test(label) ? `[${label}]` : ""));
-        });
-
-        clone.querySelectorAll("ul, ol").forEach((list) => {
-          const directItems = Array.from(list.querySelectorAll("li")).filter(
-            (item) => item.closest("ul, ol") === list
-          );
-          directItems.forEach((item, index) => {
-            const prefix = list.tagName === "OL" ? `${index + 1}. ` : "- ";
-            item.prepend(document.createTextNode(prefix));
+          clone.querySelectorAll(citationSelector).forEach((button) => {
+            const label = (button.textContent || "").trim();
+            button.replaceWith(document.createTextNode(/^\d+$/.test(label) ? `[${label}]` : ""));
           });
-        });
 
-        const wrapper = document.createElement("div");
-        wrapper.style.cssText =
-          "position:fixed;left:-100000px;top:0;width:800px;visibility:visible";
-        wrapper.appendChild(clone);
-        document.body.appendChild(wrapper);
-        const text = clone.innerText;
-        wrapper.remove();
-        return text;
-      };
-      let userIndex = -1;
+          clone.querySelectorAll("ul, ol").forEach((list) => {
+            const directItems = Array.from(list.querySelectorAll("li")).filter(
+              (item) => item.closest("ul, ol") === list
+            );
+            directItems.forEach((item, index) => {
+              const prefix = list.tagName === "OL" ? `${index + 1}. ` : "- ";
+              item.prepend(document.createTextNode(prefix));
+            });
+          });
 
-      for (let index = 0; index < elements.length; index++) {
-        const user = elements[index].querySelector(".from-user-container");
-        if (user && matches((user as HTMLElement).innerText, expectedText)) {
-          userIndex = index;
+          const wrapper = document.createElement("div");
+          wrapper.style.cssText =
+            "position:fixed;left:-100000px;top:0;width:800px;visibility:visible";
+          wrapper.appendChild(clone);
+          document.body.appendChild(wrapper);
+          const text = clone.innerText;
+          wrapper.remove();
+          return text;
+        };
+        let userIndex = -1;
+
+        for (let index = 0; index < elements.length; index++) {
+          const user = elements[index].querySelector(userSelector);
+          if (user && matches((user as HTMLElement).innerText, expectedText)) {
+            userIndex = index;
+          }
         }
-      }
 
-      if (userIndex < 0) {
-        return { userFound: false, text: null, complete: false };
-      }
-
-      for (let index = userIndex + 1; index < elements.length; index++) {
-        if (elements[index].querySelector(".from-user-container")) break;
-        const answer = elements[index].querySelector(".to-user-container");
-        if (answer) {
-          const textElement = answer.querySelector(".message-text-content");
-          return {
-            userFound: true,
-            text: textElement ? extractText(textElement) : null,
-            complete: Boolean(answer.querySelector(".message-actions")),
-          };
+        if (userIndex < 0) {
+          return { userFound: false, text: null, complete: false };
         }
-      }
 
-      return { userFound: true, text: null, complete: false };
-    }, expected);
+        for (let index = userIndex + 1; index < elements.length; index++) {
+          if (elements[index].querySelector(userSelector)) break;
+          const answer = elements[index].querySelector(answerSelector);
+          if (answer) {
+            const textElement = answer.querySelector(messageTextSelector);
+            return {
+              userFound: true,
+              text: textElement ? extractText(textElement) : null,
+              complete: Boolean(answer.querySelector(messageActionsSelector)),
+            };
+          }
+        }
+
+        return { userFound: true, text: null, complete: false };
+      },
+      {
+        expectedText: expected,
+        citationSelector: joinAlt(Selectors.citations.button),
+        userSelector: Selectors.chat.userMessage,
+        answerSelector: Selectors.chat.answerContainer,
+        messageTextSelector: Selectors.chat.messageText,
+        messageActionsSelector: Selectors.chat.messageActions,
+      }
+    );
 
     const generating = await isGenerating(page);
     const cleaned = match.text ? sanitizeAnswer(match.text) : "";
@@ -618,8 +636,9 @@ async function readLatestAnswerState(page: Page): Promise<TurnAnswerState> {
 
     const latest = answers.last();
     const generating = await isGenerating(page);
-    const complete = (await latest.locator(".message-actions").count()) > 0 && !generating;
-    const raw = await readFormattedAnswer(latest.locator(".message-text-content").first());
+    const complete =
+      (await latest.locator(Selectors.chat.messageActions).count()) > 0 && !generating;
+    const raw = await readFormattedAnswer(latest.locator(Selectors.chat.messageText).first());
     const cleaned = sanitizeAnswer(raw);
     return {
       userFound: false,
@@ -642,10 +661,10 @@ async function isGenerating(page: Page): Promise<boolean> {
  * browser `innerText` omits for lists and inline citations.
  */
 async function readFormattedAnswer(textElement: ReturnType<Page["locator"]>): Promise<string> {
-  return textElement.evaluate((element) => {
+  return textElement.evaluate((element, citationSelector) => {
     const clone = element.cloneNode(true) as HTMLElement;
 
-    clone.querySelectorAll("button.citation-marker").forEach((button) => {
+    clone.querySelectorAll(citationSelector).forEach((button) => {
       const label = (button.textContent || "").trim();
       const replacement = document.createTextNode(/^\d+$/.test(label) ? `[${label}]` : "");
       button.replaceWith(replacement);
@@ -668,7 +687,7 @@ async function readFormattedAnswer(textElement: ReturnType<Page["locator"]>): Pr
     const text = clone.innerText;
     wrapper.remove();
     return text;
-  });
+  }, joinAlt(Selectors.citations.button));
 }
 
 /**

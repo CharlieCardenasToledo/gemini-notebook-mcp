@@ -114,6 +114,7 @@ Slug rules: `[a-z0-9][a-z0-9-_]{0,30}`, case-insensitive (lowercased internally)
 | `NOTEBOOKLM_ALLOWED_HOSTS` | CSV | loopback hosts | Allowed HTTP `Host` values. Add the public proxy hostname here. |
 | `NOTEBOOKLM_ALLOWED_ORIGINS` | CSV | loopback origins | Allowed browser `Origin` values. |
 | `NOTEBOOKLM_HTTP_MAX_BODY_BYTES` | int | `1048576` | Maximum JSON request size. |
+| `NOTEBOOKLM_HTTP_MAX_SESSIONS` | int | `32` | Maximum concurrent Streamable-HTTP transports. Excess initialization requests receive HTTP 429. |
 
 Requests with an `Origin` header are rejected unless the origin is loopback or
 listed explicitly. When an auth token is configured, clients must send

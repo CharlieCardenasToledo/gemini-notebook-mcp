@@ -33,6 +33,8 @@ export interface HttpTransportOptions {
   allowedOrigins?: readonly string[];
   allowedHosts?: readonly string[];
   maxBodyBytes?: number;
+  /** Maximum concurrent MCP transports. Defaults to 32. */
+  maxSessions?: number;
   /** Connect callback invoked once per new session — wires the McpServer to the transport. */
   connect: (transport: StreamableHTTPServerTransport) => Promise<void>;
 }
@@ -173,6 +175,10 @@ async function handleRequest(
   // Re-use existing session, or initialise a new one when the client says so.
   let transport = sessionId ? transports.get(sessionId) : undefined;
   if (!transport && isInitializeRequest(body)) {
+    const maxSessions = opts.maxSessions ?? 32;
+    if (transports.size >= maxSessions) {
+      throw new HttpRequestError(429, `too many active MCP sessions (maximum ${maxSessions})`);
+    }
     transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (sid) => {

@@ -30,7 +30,7 @@
 import type { Page } from "patchright";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Selectors, joinAlt } from "./selectors.js";
+import { Selectors, joinAlt, verifySelectorGroup, type SelectorGroupName } from "./selectors.js";
 import { safeSleep, isRecoverable } from "../browser/watchdog.js";
 import { log } from "../utils/logger.js";
 import { CONFIG } from "../config.js";
@@ -95,14 +95,14 @@ export async function generateAudioOverview(
     if (customPrompt) {
       await openAudioCustomiseDialog(page);
       const overlay = page.locator(Selectors.sources.overlayPane).first();
-      const promptField = overlay.locator("textarea, input[type='text']").first();
+      const promptField = overlay.locator(Selectors.studio.customPromptField).first();
       if (await promptField.isVisible({ timeout: 1_500 }).catch(() => false)) {
         await promptField.fill(customPrompt);
         await safeSleep(page, 200);
       }
-      await clickFirstVisible(page, Selectors.studio.generateButton, "Generate button");
+      await clickFirstVisible(page, "studio.generate");
     } else {
-      await clickFirstVisible(page, Selectors.studio.audioOverviewButton, "Audio overview entry");
+      await clickFirstVisible(page, "studio.audioOverview");
     }
 
     log.info("  🎙️  Audio Overview generation triggered");
@@ -207,7 +207,7 @@ const GENERATION_IN_PROGRESS_PHRASES = [
 async function audioGenerationInProgress(page: Page): Promise<boolean> {
   try {
     const studioText = await page
-      .locator(".studio-panel")
+      .locator(Selectors.studio.panel)
       .first()
       .textContent({ timeout: 500 })
       .catch(() => null);
@@ -231,15 +231,7 @@ async function ensureStudioPanelExpanded(page: Page): Promise<void> {
     .catch(() => false);
   if (cardVisible) return;
 
-  const expandSelectors = [
-    'button:has(mat-icon:text-is("dock_to_left"))',
-    'button[aria-label*="erweitern" i][aria-label*="studio" i]',
-    'button[aria-label*="expand" i][aria-label*="studio" i]',
-    'button[aria-label*="ouvrir" i][aria-label*="studio" i]',
-    'button[aria-label*="abrir" i][aria-label*="studio" i]',
-    'button[aria-label*="aprire" i][aria-label*="studio" i]',
-  ];
-  for (const sel of expandSelectors) {
+  for (const sel of Selectors.studio.expandPanelButton) {
     const btn = page.locator(sel).first();
     if (await btn.isVisible({ timeout: 500 }).catch(() => false)) {
       await btn.click().catch(() => undefined);
@@ -250,16 +242,7 @@ async function ensureStudioPanelExpanded(page: Page): Promise<void> {
 }
 
 async function openAudioCustomiseDialog(page: Page): Promise<void> {
-  const customiseSelectors = [
-    'button[aria-label*="audio-zusammenfassung anpassen" i]',
-    'button[aria-label*="audio" i][aria-label*="anpassen" i]',
-    'button[aria-label*="customise audio" i]',
-    'button[aria-label*="customize audio" i]',
-    'button[aria-label*="personnaliser" i][aria-label*="audio" i]',
-    'button[aria-label*="personalizar" i][aria-label*="audio" i]',
-    'button[aria-label*="personalizza" i][aria-label*="audio" i]',
-  ];
-  await clickFirstVisible(page, customiseSelectors, "Audio customise button");
+  await clickFirstVisible(page, "studio.customiseAudio");
 }
 
 export interface DownloadAudioResult {
@@ -293,16 +276,12 @@ export async function downloadAudioOverview(
     }
 
     // Open the three-dot menu on the audio tile.
-    await clickFirstVisible(page, Selectors.studio.audioMoreMenuButton, "Audio more-menu button");
+    await clickFirstVisible(page, "studio.audioMoreMenu");
     await safeSleep(page, 250);
 
     // Now race the download event against the menu-item click.
     const downloadPromise = page.waitForEvent("download", { timeout: 60_000 });
-    await clickFirstVisible(
-      page,
-      Selectors.studio.audioDownloadMenuItem,
-      "Audio download menu item"
-    );
+    await clickFirstVisible(page, "studio.audioDownload");
     const download = await downloadPromise;
 
     const suggested = sanitizeDownloadName(download.suggestedFilename() || preferredFileName);
@@ -383,21 +362,8 @@ async function chooseAvailablePath(directory: string, fileName: string): Promise
   throw new Error("Unable to allocate a unique audio filename");
 }
 
-async function clickFirstVisible(
-  page: Page,
-  selectors: readonly string[],
-  label: string
-): Promise<void> {
-  for (const sel of selectors) {
-    const candidate = page.locator(sel).first();
-    if (await candidate.isVisible({ timeout: 1_500 }).catch(() => false)) {
-      await candidate.click();
-      await safeSleep(page, 300);
-      return;
-    }
-  }
-  throw new Error(
-    `Could not find ${label} — selectors: ${selectors.join(" | ")}. ` +
-      "NotebookLM Studio UI may have changed."
-  );
+async function clickFirstVisible(page: Page, selectorGroup: SelectorGroupName): Promise<void> {
+  const selector = await verifySelectorGroup(page, selectorGroup, 1_500);
+  await page.locator(selector).first().click();
+  await safeSleep(page, 300);
 }

@@ -27,13 +27,27 @@
  * (DE, EN locales).
  */
 
+import type { Page } from "patchright";
+import { UiChangedError } from "../errors.js";
+
+export const NOTEBOOK_UI_SELECTOR_VERSION = "2026.07.2";
+
 export const Selectors = {
+  auth: {
+    emailInput: ["input#identifierId", "input[name='identifier']", "input[type='email']"],
+    identifierNext: ["#identifierNext", "button:has-text('Next')", "button:has-text('Weiter')"],
+    passwordInput: ["input[name='Passwd']", "input[type='password']"],
+    passwordNext: ["#passwordNext", "button:has-text('Next')", "button:has-text('Weiter')"],
+  },
   chat: {
     message: "chat-message",
     userMessage: ".from-user-container",
     answerContainer: ".to-user-container",
     answerText: ".to-user-container .message-text-content",
     answerActions: ".to-user-container .message-actions",
+    messageText: ".message-text-content",
+    messageActions: ".message-actions",
+    dialog: '[role="dialog"]',
     jumpToBottomButton: "button.jump-to-bottom-button",
     stopButton: "button.stop-button",
     /**
@@ -98,6 +112,16 @@ export const Selectors = {
       'button:has-text("Limpar")',
       'button:has-text("Wissen")',
       'button:has-text("削除")',
+    ],
+    rateLimitContainers: [
+      ".error-message",
+      ".error-container",
+      "[role='alert']",
+      ".rate-limit-message",
+      "[data-error]",
+      ".notification-error",
+      ".alert-error",
+      ".toast-error",
     ],
   },
 
@@ -177,6 +201,18 @@ export const Selectors = {
     overlayPane: '[role="dialog"]',
     overlayInput: '[role="dialog"] input[type="text"]:not([readonly])',
     overlayTextarea: '[role="dialog"] textarea',
+    contentInput: [
+      '[role="dialog"] textarea',
+      '[role="dialog"] input[type="text"]:not([readonly])',
+      '[role="dialog"] textarea:not(.query-box-input):not(.query-box-textarea)',
+    ],
+    titleInput: [
+      'input[placeholder*="title" i]',
+      'input[placeholder*="name" i]',
+      'input[name="title"]',
+      'input[type="text"]:not([readonly])',
+    ],
+    errorMessage: ['[role="alert"]:visible', ".error-message:visible", ".mdc-snackbar--open"],
     /**
      * Source-type buttons in the Add-source overlay. Google ships them
      * *without* aria-labels — the only stable, language-agnostic anchor is
@@ -270,6 +306,25 @@ export const Selectors = {
   },
 
   studio: {
+    panel: ".studio-panel",
+    customPromptField: "textarea, input[type='text']",
+    expandPanelButton: [
+      'button:has(mat-icon:text-is("dock_to_left"))',
+      'button[aria-label*="erweitern" i][aria-label*="studio" i]',
+      'button[aria-label*="expand" i][aria-label*="studio" i]',
+      'button[aria-label*="ouvrir" i][aria-label*="studio" i]',
+      'button[aria-label*="abrir" i][aria-label*="studio" i]',
+      'button[aria-label*="aprire" i][aria-label*="studio" i]',
+    ],
+    customiseAudioButton: [
+      'button[aria-label*="audio-zusammenfassung anpassen" i]',
+      'button[aria-label*="audio" i][aria-label*="anpassen" i]',
+      'button[aria-label*="customise audio" i]',
+      'button[aria-label*="customize audio" i]',
+      'button[aria-label*="personnaliser" i][aria-label*="audio" i]',
+      'button[aria-label*="personalizar" i][aria-label*="audio" i]',
+      'button[aria-label*="personalizza" i][aria-label*="audio" i]',
+    ],
     /**
      * "Audio Overview" entry control. As of the 2026-05 Studio layout this
      * is a `<div role="button">` with a Material-Symbols `audio_magic_eraser`
@@ -447,4 +502,62 @@ export const Selectors = {
  */
 export function joinAlt(selectors: readonly string[]): string {
   return selectors.join(", ");
+}
+
+export const SelectorGroups = {
+  "auth.emailInput": Selectors.auth.emailInput,
+  "auth.identifierNext": Selectors.auth.identifierNext,
+  "auth.passwordInput": Selectors.auth.passwordInput,
+  "auth.passwordNext": Selectors.auth.passwordNext,
+  "chat.queryInput": Selectors.chat.queryInput,
+  "chat.submitButton": Selectors.chat.submitButton,
+  "chat.answer": [Selectors.chat.answerContainer, Selectors.chat.answerText],
+  "chat.rateLimit": Selectors.chat.rateLimitContainers,
+  "sources.addButton": Selectors.sources.addButton,
+  "sources.dialog": [Selectors.sources.overlayPane],
+  "sources.contentInput": Selectors.sources.contentInput,
+  "sources.insertConfirm": Selectors.sources.insertConfirm,
+  "sources.errorMessage": Selectors.sources.errorMessage,
+  "citations.marker": Selectors.citations.button,
+  "citations.highlight": [Selectors.citations.paragraphHighlight, Selectors.citations.highlight],
+  "studio.audioOverview": Selectors.studio.audioOverviewButton,
+  "studio.generate": Selectors.studio.generateButton,
+  "studio.expandPanel": Selectors.studio.expandPanelButton,
+  "studio.customiseAudio": Selectors.studio.customiseAudioButton,
+  "studio.audioPlayer": Selectors.studio.audioPlayer,
+  "studio.audioMoreMenu": Selectors.studio.audioMoreMenuButton,
+  "studio.audioDownload": Selectors.studio.audioDownloadMenuItem,
+  "notebooks.projectCard": [Selectors.notebooks.projectCard],
+} as const;
+
+export type SelectorGroupName = keyof typeof SelectorGroups;
+
+export function selectorCandidates(group: SelectorGroupName): readonly string[] {
+  return SelectorGroups[group];
+}
+
+export async function findVisibleSelector(
+  page: Page,
+  group: SelectorGroupName,
+  timeoutMs = 500
+): Promise<string | null> {
+  for (const selector of selectorCandidates(group)) {
+    const visible = await page
+      .locator(selector)
+      .first()
+      .isVisible({ timeout: timeoutMs })
+      .catch(() => false);
+    if (visible) return selector;
+  }
+  return null;
+}
+
+export async function verifySelectorGroup(
+  page: Page,
+  group: SelectorGroupName,
+  timeoutMs = 500
+): Promise<string> {
+  const selector = await findVisibleSelector(page, group, timeoutMs);
+  if (!selector) throw new UiChangedError(group);
+  return selector;
 }

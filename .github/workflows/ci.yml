@@ -34,4 +34,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm pack --dry-run
+      - run: mkdir -p /tmp/notebooklm-package-smoke
+      - run: npm pack --pack-destination /tmp/notebooklm-package-smoke
+      - run: npm install --prefix /tmp/notebooklm-package-smoke /tmp/notebooklm-package-smoke/*.tgz --ignore-scripts --no-audit --no-fund
+      - run: npm run package:smoke -- /tmp/notebooklm-package-smoke/node_modules/@charlie.act7/gemini-notebook-mcp/dist/index.js
