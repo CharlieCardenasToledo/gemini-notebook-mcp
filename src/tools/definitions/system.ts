@@ -11,15 +11,18 @@ export const systemTools: Tool[] = [
     name: "get_health",
     description:
       "Inspect server state. Returns:\n" +
-      "  • `authenticated` — whether saved Google cookies are still valid\n" +
+      "  • `auth_state_present` — whether a readable cookie backup exists\n" +
+      "  • `authenticated` — `null`; live auth is checked when NotebookLM opens\n" +
+      "  • `authentication_check` — explains where live verification occurs\n" +
       "  • `notebook_url`, `active_notebook_id`, `active_notebook_name` —\n" +
       "    the currently selected library notebook (or null)\n" +
       "  • `total_notebooks` — library size\n" +
       "  • `active_sessions`, `max_sessions`, `session_timeout` — runtime\n" +
       "    session stats (timeout in seconds; sessions auto-close after this)\n" +
       "  • `headless`, `auto_login_enabled`, `stealth_enabled` — config\n" +
-      "Use this first thing in a new conversation. If `authenticated=false`, " +
-      "run `setup_auth` (or `re_auth` to switch accounts).",
+      "Use this first thing in a new conversation for server diagnostics. " +
+      "Do not run destructive auth tools from this result alone; `re_auth` is " +
+      "only for switching accounts or a confirmed Google sign-in redirect.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -38,11 +41,12 @@ export const systemTools: Tool[] = [
       "sign-in, then cookies are persisted for future runs. Existing profile " +
       "data is preserved; use `re_auth` when a clean login is required.\n\n" +
       "When to use:\n" +
-      "  • `get_health` reports `authenticated=false` for the first time\n" +
+      "  • This is the first run and Google requests sign-in\n" +
       "  • Auto-login credentials are not configured\n" +
       "  • `re_auth` is the right call when you want to *switch* accounts " +
       "or recover from a daily-quota lockout\n\n" +
-      "After login finishes, call `get_health` to verify success.\n\n" +
+      "After login finishes, a NotebookLM operation verifies the live session; " +
+      "`get_health` only reports whether the saved backup is readable.\n\n" +
       "If the browser session feels broken (auth keeps failing, stale cookies), " +
       "run `cleanup_data(confirm=true, preserve_library=true)` first, then " +
       "retry `setup_auth`.",
@@ -86,7 +90,7 @@ export const systemTools: Tool[] = [
       "  • NotebookLM's 50 queries/day free-tier limit is reached and the " +
       "user wants to rotate to another Google account\n" +
       "  • `setup_auth` failed and a clean slate is needed\n\n" +
-      "After login, call `get_health` to verify. For very stuck states, run " +
+      "After login, open NotebookLM to verify. For very stuck states, run " +
       "`cleanup_data(confirm=true, preserve_library=true)` before `re_auth`.",
     inputSchema: {
       type: "object",

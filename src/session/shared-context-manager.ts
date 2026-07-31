@@ -290,6 +290,10 @@ export class SharedContextManager {
       log.warning("🛑 Closing persistent context...");
       log.info("  💾 Chrome is saving profile to disk...");
       try {
+        // Keep state.json current for future isolated profiles. This is a
+        // best-effort backup; saveBrowserState logs failures and Chrome still
+        // persists its primary profile when the context closes.
+        await this.authManager.saveBrowserState(this.globalContext);
         await this.globalContext.close();
         this.globalContext = null;
         this.contextCreatedAt = null;

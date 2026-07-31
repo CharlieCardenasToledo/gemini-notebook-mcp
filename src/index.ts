@@ -64,8 +64,10 @@ sources, ingest sources, generate Audio Overviews).
 
 ## First-run flow
 
-1. \`get_health\` → if \`authenticated=false\`, run \`setup_auth\` (opens
-   a browser tab — user logs in once, cookies persist).
+1. \`get_health\` reports whether a readable auth backup exists; it does not
+   probe Google. On a first installation run \`setup_auth\` (opens a browser
+   tab — user logs in once, cookies persist). Later, only re-authenticate when
+   a NotebookLM operation confirms that Google redirected to sign-in.
 2. \`add_notebook\` to register a NotebookLM share-URL into the local
    library (the user must provide the URL — see add_notebook for the link
    workflow). Optionally \`select_notebook\` to make it the default.

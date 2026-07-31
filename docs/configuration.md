@@ -76,12 +76,18 @@ The default flow is interactive — `setup_auth` opens a browser and the user si
 
 | Variable | Type | Default | Purpose |
 |---|---|---|---|
-| `NOTEBOOK_PROFILE_STRATEGY` | enum | `auto` | `auto` (isolate when base is locked), `single` (always base), `isolated` (always per-instance). |
+| `NOTEBOOK_PROFILE_STRATEGY` | enum | `single` | `single` (stable base profile; fails clearly if locked), `auto` (isolate when base is locked), `isolated` (always per-instance). |
 | `NOTEBOOK_CLONE_PROFILE` | bool | `false` | Clone the base profile into the isolated dir on first use. |
 | `NOTEBOOK_CLEANUP_ON_STARTUP` | bool | `true` | Clean stale isolated profiles on boot. |
 | `NOTEBOOK_CLEANUP_ON_SHUTDOWN` | bool | `true` | Clean isolated profiles on graceful shutdown. |
 | `NOTEBOOK_INSTANCE_TTL_HOURS` | int | `72` | Max age for an isolated profile dir. |
 | `NOTEBOOK_INSTANCE_MAX_COUNT` | int | `20` | Max number of isolated profiles kept. |
+
+`single` is the authentication-safe default: only one MCP process owns the
+persistent profile, so a lock cannot silently create a clean browser that looks
+logged out. Use `auto` or `isolated` explicitly only when concurrent MCP
+processes are required; the latest valid `state.json` is loaded into those
+profiles as a cookie backup.
 
 ## Multi-account
 

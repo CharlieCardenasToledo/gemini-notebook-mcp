@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-07-31
+
+### Fixed
+
+- Removed the artificial 24-hour expiry for `state.json`; saved state is now
+  accepted based on readability and structure, while live authentication is
+  verified by an actual NotebookLM navigation.
+- `get_health` now separates `auth_state_present` from live authentication and
+  no longer recommends destructive cleanup from a file-age or presence check.
+- Successful NotebookLM navigation and graceful browser shutdown refresh the
+  portable cookie backup so Google cookie rotation persists across restarts and
+  isolated profiles.
+
+### Changed
+
+- The default `NOTEBOOK_PROFILE_STRATEGY` is now `single`, preventing a locked
+  base profile from silently falling back to a clean isolated profile. `auto`
+  and `isolated` remain explicit opt-ins for concurrent instances.
+
 ## [2.0.0] - 2026-04-30
 
 Major release that closes the issue backlog and replaces the brittle parts of

@@ -360,7 +360,9 @@ export class ToolHandlers {
   async handleGetHealth(): Promise<
     ToolResult<{
       status: string;
-      authenticated: boolean;
+      auth_state_present: boolean;
+      authenticated: null;
+      authentication_check: string;
       notebook_url: string;
       active_notebook_id: string | null;
       active_notebook_name: string | null;
@@ -378,9 +380,10 @@ export class ToolHandlers {
     log.info(`🔧 [TOOL] get_health called`);
 
     try {
-      // Check authentication status
-      const statePath = await this.authManager.getValidStatePath();
-      const authenticated = statePath !== null;
+      // A saved storage-state file is only a portable cookie backup. Its
+      // presence (or age) cannot prove whether Google currently accepts the
+      // session, so get_health deliberately avoids claiming a live result.
+      const authStatePresent = await this.authManager.hasSavedState();
 
       // Get session stats
       const stats = this.sessionManager.getStats();
@@ -392,7 +395,9 @@ export class ToolHandlers {
 
       const result = {
         status: "ok",
-        authenticated,
+        auth_state_present: authStatePresent,
+        authenticated: null,
+        authentication_check: "Authentication is verified when opening NotebookLM",
         notebook_url: notebookUrl,
         active_notebook_id: active?.id ?? null,
         active_notebook_name: active?.name ?? null,
@@ -404,11 +409,12 @@ export class ToolHandlers {
         headless: CONFIG.headless,
         auto_login_enabled: CONFIG.autoLoginEnabled,
         stealth_enabled: CONFIG.stealthEnabled,
-        // Add troubleshooting tip if not authenticated
-        ...(!authenticated && {
+        // Missing state may still be backed by the persistent Chrome profile.
+        // Do not direct agents to destructive cleanup based on this signal.
+        ...(!authStatePresent && {
           troubleshooting_tip:
-            "For fresh start with clean browser session: Close all Chrome instances → " +
-            "cleanup_data(confirm=true, preserve_library=true) → setup_auth",
+            "No readable authentication backup was found. Open NotebookLM to verify the " +
+            "persistent profile; run setup_auth only if Google requests sign-in.",
         }),
       };
 

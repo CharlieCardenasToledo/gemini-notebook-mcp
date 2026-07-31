@@ -121,6 +121,18 @@ Run the server in HTTP mode (see [Transports](#transports)) and POST JSON-RPC ag
 
 `setup_auth` opens a visible Chrome, you log in to your Google account once, and the cookies are persisted in the per-user Chrome profile. Subsequent runs reuse that profile and do not need to log in again.
 
+`get_health` reports `auth_state_present` for the portable cookie backup and
+returns `authenticated: null`; file presence or age cannot prove that Google
+accepts a session. Live authentication is verified when a NotebookLM operation
+loads the interface, and successful navigation refreshes the saved cookie state.
+Use `re_auth` only after a confirmed Google sign-in redirect or to switch
+accounts, not solely because a backup is missing.
+
+The default `NOTEBOOK_PROFILE_STRATEGY=single` also prevents a second MCP
+process from silently opening a clean isolated profile. Close the process that
+owns the profile, or opt into `auto`/`isolated` explicitly when concurrency is
+required.
+
 Profile location (env-paths):
 
 | Platform | Path |

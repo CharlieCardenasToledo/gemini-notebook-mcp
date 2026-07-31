@@ -349,7 +349,9 @@ No parameters.
 ```jsonc
 {
   "status": "ok",
-  "authenticated": true,
+  "auth_state_present": true,
+  "authenticated": null,
+  "authentication_check": "Authentication is verified when opening NotebookLM",
   "active_sessions": 1,
   "version": "2.0.0",
   "config": {
@@ -361,7 +363,11 @@ No parameters.
 }
 ```
 
-When `authenticated=false` the response also carries a `troubleshooting_tip` pointing at `setup_auth` / `cleanup_data`.
+`auth_state_present` means that `state.json` exists, is readable, and contains a
+cookie array. It is not proof that Google currently accepts those cookies.
+`authenticated` is therefore `null`; live authentication is checked when a
+browser-driven NotebookLM tool opens the service. A missing backup may produce a
+non-destructive tip, but never justifies `re_auth` or `cleanup_data` by itself.
 
 ---
 

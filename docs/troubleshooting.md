@@ -34,17 +34,25 @@ Checks:
    { "name": "ask_question", "arguments": { "question": "...", "show_browser": true } }
    ```
    Or start the server with `HEADLESS=false`.
-3. Check `get_health` — if `authenticated=false`, the page is on the login screen, not the notebook.
+3. `get_health` can confirm that a readable auth backup exists, but it does not
+   probe Google. A browser-driven NotebookLM operation performs the live check.
 
 ## Session expired / repeated login prompts
 
-Symptom: NotebookLM keeps redirecting to the login screen, or `get_health` reports `authenticated=false` after a previously successful login.
+Symptom: a browser-driven NotebookLM operation redirects to
+`accounts.google.com` after a previously successful login.
 
 Workflow:
 
-1. Close every Chrome / Chromium instance the user has open. An open Chrome can hold the persistent profile lock.
-2. `re_auth` to wipe stored auth and prompt for a fresh login.
-3. If `re_auth` fails repeatedly, run `cleanup_data` with the library preserved:
+1. Retry with `show_browser=true` and confirm that Google actually requests
+   credentials. The age of `state.json` and `get_health.auth_state_present` do
+   not establish whether the live session is valid.
+2. Close other MCP/Chrome processes that may hold the persistent profile lock,
+   or set `NOTEBOOK_PROFILE_STRATEGY=single` to fail clearly instead of using an
+   isolated profile.
+3. Only after a confirmed sign-in redirect, run `re_auth` to wipe stored auth
+   and prompt for a fresh login. If that fails repeatedly, preview
+   `cleanup_data` with the library preserved:
    ```json
    { "name": "cleanup_data", "arguments": { "confirm": false, "preserve_library": true } }
    ```
@@ -102,10 +110,12 @@ v2 ships a 5-second shutdown watchdog and an aggressive teardown path, so this i
 
 Cause: Another Chrome owns the base profile.
 
-Fix: The default `NOTEBOOK_PROFILE_STRATEGY=auto` falls back to an isolated per-instance profile. To force isolation always:
+Fix: the default `NOTEBOOK_PROFILE_STRATEGY=single` fails clearly so the server
+does not silently open a clean profile. Close the other MCP/Chrome process. If
+concurrent instances are intentional, opt into automatic isolation:
 
 ```bash
-NOTEBOOK_PROFILE_STRATEGY=isolated npx notebooklm-mcp@latest
+NOTEBOOK_PROFILE_STRATEGY=auto npx notebooklm-mcp@latest
 ```
 
 ## Rate limit reached

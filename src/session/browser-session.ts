@@ -149,6 +149,11 @@ export class BrowserSession {
       log.info(`  ⏳ Waiting for NotebookLM interface...`);
       await this.waitForNotebookLMReady();
 
+      // Google can rotate authentication cookies during a successful
+      // navigation. Refresh the portable backup only after the NotebookLM UI
+      // proves that this browser session is genuinely authenticated.
+      await this.authManager.saveBrowserState(this.context, this.page);
+
       this.initialized = true;
       this.updateActivity();
       log.success(`✅ Session ${this.sessionId} initialized successfully`);

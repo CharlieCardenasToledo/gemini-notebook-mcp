@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { CONFIG, applyBrowserOptions, getRuntimeConfig, withRuntimeConfig } from "../src/config.js";
 
+test("single profile strategy is the authentication-safe default", () => {
+  assert.equal(CONFIG.profileStrategy, "single");
+});
+
 test("request-scoped browser options do not mutate global configuration", async () => {
   const visible = applyBrowserOptions({ show: true, timeout_ms: 1234 });
   const hidden = applyBrowserOptions({ show: false, timeout_ms: 5678 });
