@@ -12,6 +12,17 @@ export interface Citation {
   number: number;
   sourceName: string;
   sourceText: string;
+  source_id: string | null;
+  source_name: string;
+  source_type: "web" | "youtube" | "pdf" | "audio" | "video" | "document" | "unknown";
+  source_url: string | null;
+  location: {
+    page?: number;
+    slide?: number;
+    timestamp_seconds?: number;
+  } | null;
+  excerpt: string | null;
+  extraction_status: "complete" | "partial" | "unavailable";
 }
 
 export interface ExtractCitationsResult {
@@ -27,6 +38,8 @@ export interface CitationExtractionOptions {
 interface CitationStub {
   number: number;
   sourceName: string;
+  sourceId: string | null;
+  sourceUrl: string | null;
 }
 
 export async function extractCitations(
@@ -54,13 +67,23 @@ export async function extractCitations(
   for (const stub of rawCitations) {
     throwIfAborted(signal);
     const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-    const sourceText = await extractExcerpt(page, stub.number, Math.min(1_500, remaining), signal);
+    const excerpt =
+      remaining > 0
+        ? await extractExcerpt(page, stub.number, Math.min(1_500, remaining), signal)
+        : "";
+    const sourceText = excerpt || stub.sourceName;
     citations.push({
       marker: `[${stub.number}]`,
       number: stub.number,
       sourceName: stub.sourceName,
-      sourceText: sourceText || stub.sourceName,
+      sourceText,
+      source_id: stub.sourceId,
+      source_name: stub.sourceName,
+      source_type: inferCitationSourceType(stub.sourceName, stub.sourceUrl),
+      source_url: stub.sourceUrl,
+      location: inferCitationLocation(`${stub.sourceName} ${excerpt}`),
+      excerpt: excerpt || null,
+      extraction_status: excerpt ? "complete" : stub.sourceName ? "partial" : "unavailable",
     });
   }
 
@@ -89,9 +112,15 @@ async function readCitationStubs(page: Page): Promise<CitationStub[]> {
           seen.add(number);
           const label = button.querySelector(labelSelector)?.getAttribute("aria-label") || "";
           const colon = label.indexOf(": ");
+          const link = button.closest("a[href]") || button.querySelector("a[href]");
           out.push({
             number,
             sourceName: colon > 0 ? label.slice(colon + 2).trim() : label.trim(),
+            sourceId:
+              button.getAttribute("data-source-id") ||
+              button.getAttribute("data-citation-id") ||
+              null,
+            sourceUrl: link?.getAttribute("href") || null,
           });
         });
         return out.sort((left, right) => left.number - right.number);
@@ -123,7 +152,7 @@ async function extractExcerpt(
         for (const button of buttons) {
           const match = (button.textContent || "").match(/(\d+)/);
           if (match && Number.parseInt(match[1], 10) === citationNumber) {
-            (button as HTMLElement).scrollIntoView({ block: "center" });
+            (button as HTMLElement).scrollIntoView?.({ block: "center" });
             (button as HTMLElement).click();
             return true;
           }
@@ -146,12 +175,18 @@ async function extractExcerpt(
           const highlights = document.querySelectorAll(highlightSelector);
           if (highlights.length === 0) return "";
           const highlightedText = Array.from(highlights)
-            .map((element) => ((element as HTMLElement).innerText || "").trim())
+            .map((element) =>
+              ((element as HTMLElement).innerText || element.textContent || "").trim()
+            )
             .filter(Boolean)
             .join(" ");
           if (!highlightedText) return "";
           const parent = highlights[0].closest(paragraphSelector) || highlights[0].parentElement;
-          const paragraphText = ((parent as HTMLElement | null)?.innerText || "").trim();
+          const paragraphText = (
+            (parent as HTMLElement | null)?.innerText ||
+            parent?.textContent ||
+            ""
+          ).trim();
           return paragraphText.length > highlightedText.length ? paragraphText : highlightedText;
         },
         {
@@ -205,4 +240,33 @@ function formatAnswer(answer: string, citations: Citation[], format: SourceForma
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+function inferCitationSourceType(
+  sourceName: string,
+  sourceUrl: string | null
+): Citation["source_type"] {
+  const value = `${sourceName} ${sourceUrl ?? ""}`.toLowerCase();
+  if (/youtube|youtu\.be/.test(value)) return "youtube";
+  if (/\.pdf(?:\b|[?#])/.test(value)) return "pdf";
+  if (/\.(?:mp3|m4a|wav|ogg)(?:\b|[?#])/.test(value)) return "audio";
+  if (/\.(?:mp4|mov|webm)(?:\b|[?#])/.test(value)) return "video";
+  if (/^https?:/.test(sourceUrl ?? "")) return "web";
+  if (/\.(?:docx?|pptx?|xlsx?|epub|txt)(?:\b|[?#])/.test(value)) return "document";
+  return "unknown";
+}
+
+function inferCitationLocation(text: string): Citation["location"] {
+  const page = text.match(/(?:page|página|seite|pagina|ページ)\s*(\d+)/i);
+  if (page) return { page: Number(page[1]) };
+  const slide = text.match(/(?:slide|diapositiva|folie|スライド)\s*(\d+)/i);
+  if (slide) return { slide: Number(slide[1]) };
+  const timestamp = text.match(/\b(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\b/);
+  if (timestamp) {
+    return {
+      timestamp_seconds:
+        Number(timestamp[1] ?? 0) * 3600 + Number(timestamp[2]) * 60 + Number(timestamp[3]),
+    };
+  }
+  return null;
 }

@@ -26,8 +26,11 @@ import {
 } from "../notebooklm/citations.js";
 import {
   addSource as addSourceToPage,
+  listSources as listSourcesOnPage,
+  getSource as getSourceOnPage,
   type AddSourceInput,
   type AddSourceResult,
+  type SourceSummary,
 } from "../notebooklm/sources.js";
 import {
   generateAudioOverview as generateAudioOnPage,
@@ -533,6 +536,32 @@ export class BrowserSession {
       "add_source",
       (page) => addSourceToPage(page, input),
       { signal, timeoutMs: 120_000 }
+    );
+  }
+
+  async listSources(signal?: AbortSignal): Promise<SourceSummary[]> {
+    return await this.runExclusive(
+      () =>
+        this.withAuthenticatedNotebookPage("list_sources", listSourcesOnPage, {
+          signal,
+          timeoutMs: 30_000,
+        }),
+      signal
+    );
+  }
+
+  async getSource(
+    selector: { sourceId?: string; name?: string },
+    signal?: AbortSignal
+  ): Promise<SourceSummary | null> {
+    return await this.runExclusive(
+      () =>
+        this.withAuthenticatedNotebookPage(
+          "get_source",
+          (page) => getSourceOnPage(page, selector),
+          { signal, timeoutMs: 30_000 }
+        ),
+      signal
     );
   }
 

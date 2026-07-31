@@ -65,25 +65,37 @@ Ask a question against a notebook. Reuses an existing browser session when `sess
   },
   "source_format": "footnotes",
   "sources": [
-    { "index": 1, "title": "auth-spec.pdf", "excerpt": "Refresh tokens MUST be rotated…" }
+    {
+      "marker": "[1]",
+      "number": 1,
+      "sourceName": "auth-spec.pdf",
+      "sourceText": "Refresh tokens MUST be rotated…",
+      "source_id": "source-42",
+      "source_name": "auth-spec.pdf",
+      "source_type": "pdf",
+      "source_url": null,
+      "location": { "page": 42 },
+      "excerpt": "Refresh tokens MUST be rotated…",
+      "extraction_status": "complete"
+    }
   ]
 }
 ```
 
-`sources` is omitted when `source_format=none` or when no citations were found.
+`sources` is omitted when `source_format=none` or when no citations were found. The camelCase fields remain for compatibility; v2.3 adds the structured snake_case fields. `extraction_status=partial` means the marker/name was detected but the excerpt panel could not be read within the shared eight-second budget.
 
 ---
 
 ## add_source — new in v2
 
-Add a source to a notebook. v2 supports `type=url` (web crawl) and `type=text` (paste). File / YouTube / Drive uploads are not supported.
+Add a source to a notebook. v2.3 supports `type=url` (web crawl), `type=youtube` (public YouTube URL), and `type=text` (paste). File and Drive picker flows are not exposed yet.
 
 ### Parameters
 
 | Name | Type | Required | Notes |
 |---|---|---|---|
-| `type` | `url` \| `text` | yes | |
-| `content` | string | yes | URL when `type=url`, raw text when `type=text`. |
+| `type` | `url` \| `youtube` \| `text` | yes | |
+| `content` | string | yes | HTTPS URL for URL/YouTube, raw text for text. |
 | `title` | string | no | Optional display title. NotebookLM picks a default. |
 | `session_id` | string | no | Reuse an existing browser session. |
 | `notebook_id` | string | no | Library notebook ID. |
@@ -106,20 +118,46 @@ Add a source to a notebook. v2 supports `type=url` (web crawl) and `type=text` (
 
 ```jsonc
 {
-  "status": "success",
-  "type": "url",
-  "title": "n8n JMESPath builtin",
-  "source_count_before": 12,
-  "source_count_after": 13,
-  "added": true
+  "result": {
+    "success": true,
+    "type": "url",
+    "sourceCountBefore": 12,
+    "sourceCountAfter": 13,
+    "source": {
+      "source_id": "src_…",
+      "name": "n8n JMESPath builtin",
+      "type": "web",
+      "status": "ready"
+    }
+  }
 }
 ```
 
 ---
 
+## list_sources / get_source / get_source_status — new in v2.3
+
+`list_sources` inspects the live source sidebar and returns `{ sources, count }`. Each source contains `source_id`, `name`, inferred `type`, `status`, visible `url`, and `position`. `get_source` and its status-focused alias `get_source_status` accept either `source_id` or exact `name`, plus the normal notebook/session targeting fields. A missing source panel produces `UI_CHANGED`; it is not reported as an empty notebook.
+
+## batch_add_sources — new in v2.3
+
+Accepts `sources` (1–25 objects with the same `type`, `content`, and optional `title` fields as `add_source`) and optional `stop_on_error` (default `true`). Returns `{ results, added, failed }` and reuses one authenticated notebook session.
+
+## generate_artifact / list_artifacts — new in v2.3
+
+`generate_artifact` accepts `type: "audio_overview"`, optional `custom_prompt`, `wait_for_completion`, timeout, and notebook targeting. It returns a persistent job with `job_id`, `artifact_id`, `artifact_type`, `status`, and timestamps. `list_artifacts` reads those jobs without opening a browser and can filter by `notebook_id` or `notebook_url`.
+
+## get_artifact_status / download_artifact — new in v2.3
+
+Both accept the persistent `job_id`. Status refreshes the live Audio Overview state; download additionally requires `destination_dir` under `NOTEBOOKLM_OUTPUT_DIR` and stores `file_path` in the job. Jobs are stored in `artifact-jobs.json` under `NOTEBOOKLM_DATA_DIR` and survive MCP reconnects.
+
+The legacy `generate_audio`, `get_audio_status`, and `download_audio` tools remain available for compatibility.
+
+---
+
 ## generate_audio — new in v2
 
-Generate a podcast-style Audio Overview for a notebook. Resolves when the audio element is ready.
+Generate a podcast-style Audio Overview for a notebook. It returns immediately by default; pass `wait_for_completion=true` for synchronous waiting.
 
 ### Parameters
 
@@ -232,21 +270,38 @@ No parameters. Returns the full library.
 
 ```jsonc
 {
-  "active_notebook_id": "nb_abcd",
   "notebooks": [
     {
-      "id": "nb_abcd",
+      "id": "1cf83fd8-91d2-43f2-b9dc-e3f159c2993d",
+      "slug": "n8n-documentation",
+      "google_notebook_id": "…",
       "name": "n8n Documentation",
       "url": "https://notebook.google.com/notebook/…",
       "description": "n8n core + builtin nodes",
       "topics": ["workflow automation", "n8n"],
       "use_cases": ["building n8n workflows"],
       "tags": ["docs"],
-      "use_count": 42
+      "use_count": 42,
+      "source_count": 18,
+      "sync_status": "available"
     }
   ]
 }
 ```
+
+---
+
+## list_account_notebooks
+
+No parameters. Opens the live signed-in NotebookLM home grid and returns Google notebook IDs, names, URLs, visible modification text, and source counts.
+
+## import_account_notebook — new in v2.3
+
+Requires `google_notebook_id` from `list_account_notebooks`. Optional `description`, `topics`, `content_types`, `use_cases`, and `tags` seed local metadata. Import is idempotent and stores a new local UUID separately from the Google ID.
+
+## sync_library — new in v2.3
+
+Accepts optional `apply` (default `false`). Preview reports `added`, `updated`, `missing`, and `unchanged`. Applying adds account notebooks, tracks renames/source counts, and marks inaccessible notebooks as `missing`; it never deletes local entries.
 
 ---
 

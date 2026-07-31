@@ -37,16 +37,17 @@ const sharedNotebookTargeting = {
 export const addSourceTool: Tool = {
   name: "add_source",
   description:
-    "Ingest a source into a NotebookLM notebook. Supports two source types " +
+    "Ingest a source into a NotebookLM notebook. Supports three source types " +
     "in the current browser backend:\n" +
     "  • `url` — NotebookLM crawls and indexes a website\n" +
-    "  • `text` — paste raw text (treated as a copied document)\n\n" +
-    "File / YouTube / Google-Drive uploads are not yet implemented.\n\n" +
+    "  • `text` — paste raw text (treated as a copied document)\n" +
+    "  • `youtube` — import a public YouTube URL\n\n" +
+    "File and Google-Drive uploads are not yet exposed because their picker flows require additional permission and path controls.\n\n" +
     "Returns `sourceCountBefore`/`sourceCountAfter` so the caller can verify " +
     "the new source landed. Call once per source — multiple sources require " +
     "multiple calls. NotebookLM finishes indexing within 5–30 seconds; " +
     "subsequent `ask_question` calls then have the new source in context. " +
-    "Free notebooks cap at 50 sources.\n\n" +
+    "Account and source limits vary; rely on the live Google interface.\n\n" +
     "Known quirk: pasted-text uploads occasionally redirect to a freshly " +
     'created "Untitled notebook" on Google\'s side. The tool detects this ' +
     "and returns a clear error so you can re-try against the correct URL.",
@@ -55,16 +56,16 @@ export const addSourceTool: Tool = {
     properties: {
       type: {
         type: "string",
-        enum: ["url", "text"],
+        enum: ["url", "text", "youtube"],
         description:
-          "`url` crawls the supplied website; `text` ingests `content` " +
-          "verbatim as a copied document.",
+          "`url` crawls a website; `youtube` imports a public video URL; " +
+          "`text` ingests `content` verbatim as a copied document.",
       },
       content: {
         type: "string",
         description:
           "When `type=url`: a fully-qualified URL (https://…). " +
-          "When `type=text`: the raw text body (any length up to NotebookLM's per-source word limit, ~500 k for free tier).",
+          "When `type=text`: the raw text body, subject to the current per-source limit shown by NotebookLM.",
       },
       title: {
         type: "string",
@@ -87,6 +88,149 @@ export const addSourceTool: Tool = {
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,
+    openWorldHint: true,
+  },
+};
+
+export const listSourcesTool: Tool = {
+  name: "list_sources",
+  description:
+    "Read the sources currently shown in a notebook sidebar. Returns a stable best-effort `source_id`, name, inferred type, indexing status, URL when exposed by the UI, and position. An empty list is returned only after the source panel was successfully inspected.",
+  inputSchema: {
+    type: "object",
+    properties: { show_browser: { type: "boolean" }, ...sharedNotebookTargeting },
+  },
+  annotations: { title: "List notebook sources", readOnlyHint: true, openWorldHint: true },
+};
+
+export const getSourceTool: Tool = {
+  name: "get_source",
+  description:
+    "Get one source from the current notebook inventory by `source_id` (preferred) or exact `name`. Use `list_sources` first when the identifier is unknown.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      source_id: { type: "string", description: "Source id returned by `list_sources`." },
+      name: { type: "string", description: "Exact visible source name." },
+      show_browser: { type: "boolean" },
+      ...sharedNotebookTargeting,
+    },
+  },
+  annotations: { title: "Get notebook source", readOnlyHint: true, openWorldHint: true },
+};
+
+export const getSourceStatusTool: Tool = {
+  ...getSourceTool,
+  name: "get_source_status",
+  description:
+    "Refresh one source from the current notebook inventory and return its indexing `status` plus the same structured source fields as `get_source`.",
+  annotations: { title: "Get source indexing status", readOnlyHint: true, openWorldHint: true },
+};
+
+export const batchAddSourcesTool: Tool = {
+  name: "batch_add_sources",
+  description:
+    "Add up to 25 URL, YouTube, or pasted-text sources sequentially in one authenticated notebook session. Stops on the first failure by default and returns a result for every attempted item.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      sources: {
+        type: "array",
+        maxItems: 25,
+        items: {
+          type: "object",
+          properties: {
+            type: { type: "string", enum: ["url", "text", "youtube"] },
+            content: { type: "string" },
+            title: { type: "string" },
+          },
+          required: ["type", "content"],
+        },
+      },
+      stop_on_error: { type: "boolean", description: "Default true." },
+      show_browser: { type: "boolean" },
+      ...sharedNotebookTargeting,
+    },
+    required: ["sources"],
+  },
+  annotations: {
+    title: "Batch add notebook sources",
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
+};
+
+export const generateArtifactTool: Tool = {
+  name: "generate_artifact",
+  description:
+    "Start a persistent Studio artifact job. Version 2.3 supports `audio_overview`; the generic job shape allows more Studio artifact types to be added without multiplying tools. Returns a `job_id` that survives MCP restarts.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      type: { type: "string", enum: ["audio_overview"] },
+      custom_prompt: { type: "string" },
+      wait_for_completion: { type: "boolean" },
+      timeout_ms: { type: "number" },
+      show_browser: { type: "boolean" },
+      ...sharedNotebookTargeting,
+    },
+    required: ["type"],
+  },
+  annotations: {
+    title: "Generate Studio artifact",
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: true,
+  },
+};
+
+export const listArtifactsTool: Tool = {
+  name: "list_artifacts",
+  description:
+    "List persistent Studio jobs created by this MCP client. Optionally filter by notebook. This reads the local job registry and does not open a browser.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      notebook_id: sharedNotebookTargeting.notebook_id,
+      notebook_url: sharedNotebookTargeting.notebook_url,
+    },
+  },
+  annotations: { title: "List Studio artifacts", readOnlyHint: true, openWorldHint: false },
+};
+
+export const getArtifactStatusTool: Tool = {
+  name: "get_artifact_status",
+  description:
+    "Refresh and return a persistent Studio job by `job_id`. For an Audio Overview this probes the live notebook and stores the updated ready/in-progress state.",
+  inputSchema: {
+    type: "object",
+    properties: { job_id: { type: "string", format: "uuid" }, show_browser: { type: "boolean" } },
+    required: ["job_id"],
+  },
+  annotations: { title: "Get artifact status", readOnlyHint: true, openWorldHint: true },
+};
+
+export const downloadArtifactTool: Tool = {
+  name: "download_artifact",
+  description:
+    "Download a ready artifact job under NOTEBOOKLM_OUTPUT_DIR and persist the resulting path in the job registry.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      job_id: { type: "string", format: "uuid" },
+      destination_dir: { type: "string" },
+      show_browser: { type: "boolean" },
+    },
+    required: ["job_id", "destination_dir"],
+  },
+  annotations: {
+    title: "Download Studio artifact",
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: true,
     openWorldHint: true,
   },
 };
@@ -216,6 +360,14 @@ export const downloadAudioTool: Tool = {
 
 export const sourceTools: Tool[] = [
   addSourceTool,
+  listSourcesTool,
+  getSourceTool,
+  getSourceStatusTool,
+  batchAddSourcesTool,
+  generateArtifactTool,
+  listArtifactsTool,
+  getArtifactStatusTool,
+  downloadArtifactTool,
   generateAudioTool,
   getAudioStatusTool,
   downloadAudioTool,

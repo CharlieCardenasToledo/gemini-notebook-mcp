@@ -19,8 +19,8 @@ The server uses `env-paths` with no suffix. Default locations:
 | Windows | `%APPDATA%\notebooklm-mcp\` | `%APPDATA%\notebooklm-mcp\Config\` |
 
 Set `NOTEBOOKLM_DATA_DIR` to use an explicit data root instead of the
-platform default. `browser_state/`, `chrome_profile/`, profile instances, and
-`library.json` are all resolved below that directory.
+platform default. `browser_state/`, `chrome_profile/`, profile instances,
+`library.json`, and `artifact-jobs.json` are all resolved below that directory.
 
 Set `NOTEBOOKLM_OUTPUT_DIR` to choose the only directory tree where downloaded
 artifacts may be written. It defaults to `<dataDir>/output`; paths outside it
@@ -33,6 +33,7 @@ Subdirectories under `dataDir`:
 - `chrome_profile_instances/` — isolated profiles created when the base profile is locked.
 - `accounts/<name>/` — per-account subtrees when `--account` is used.
 - `library.json` — local notebook library.
+- `artifact-jobs.json` — persistent Studio job IDs, states, and output paths.
 - `settings.json` (under `configDir`) — profile + disabled tools.
 
 ## Browser

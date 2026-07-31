@@ -10,7 +10,9 @@
  */
 export interface NotebookEntry {
   // Identification
-  id: string; // Unique identifier (slug format, e.g., "n8n-docs")
+  id: string; // Stable local identifier (UUID for entries created by v2.3+)
+  slug?: string; // Human-readable slug; never used as the stable identifier
+  google_notebook_id?: string; // Real id from the NotebookLM URL/account grid
   url: string; // NotebookLM URL
   name: string; // Display name (e.g., "n8n Workflow Automation")
 
@@ -27,6 +29,9 @@ export interface NotebookEntry {
 
   // Optional tags for organization
   tags?: string[]; // Custom tags for filtering
+  source_count?: number | null;
+  sync_status?: "available" | "missing" | "unknown";
+  last_synced_at?: string;
 }
 
 /**
@@ -75,4 +80,19 @@ export interface LibraryStats {
   most_used_notebook: string | null;
   total_queries: number;
   last_modified: string;
+}
+
+export interface AccountNotebookRecord {
+  id: string;
+  name: string;
+  url: string;
+  sourceCount: number | null;
+}
+
+export interface LibrarySyncResult {
+  applied: boolean;
+  added: NotebookEntry[];
+  updated: NotebookEntry[];
+  missing: NotebookEntry[];
+  unchanged: number;
 }

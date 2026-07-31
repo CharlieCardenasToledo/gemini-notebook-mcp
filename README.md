@@ -227,7 +227,15 @@ All tools below are registered in the current 2.x release and visible under the 
 
 | Tool | Purpose |
 |---|---|
-| `add_source` | Add a source to a notebook. v2 supports `type=url` (web crawl) and `type=text` (paste). Returns source counts before/after. |
+| `add_source` | Add a web URL, public YouTube URL, or pasted text source. Returns counts and the detected source when available. |
+| `batch_add_sources` | Add up to 25 URL, YouTube, or text sources sequentially in one session. |
+| `list_sources` | List visible sources with best-effort IDs, types, URLs, and indexing states. |
+| `get_source` | Resolve one source by ID or exact visible name. |
+| `get_source_status` | Refresh one source and return its current indexing state. |
+| `generate_artifact` | Start a persistent Studio job (`audio_overview` in v2.3) and return a durable `job_id`. |
+| `list_artifacts` | List locally persisted Studio jobs, optionally filtered by notebook. |
+| `get_artifact_status` | Refresh a persistent artifact job from the live notebook. |
+| `download_artifact` | Download a ready artifact and persist its output path. |
 | `generate_audio` | Generate an Audio Overview. Optional `custom_prompt`, `timeout_ms` (default 600 000 ms). |
 | `download_audio` | Save the most recent Audio Overview to `destination_dir`. Run `generate_audio` first if none exists. |
 
@@ -237,6 +245,9 @@ All tools below are registered in the current 2.x release and visible under the 
 |---|---|
 | `add_notebook` | Add a NotebookLM share-URL to the local library with metadata. Requires explicit user confirmation. |
 | `list_notebooks` | List every notebook in the library with metadata. |
+| `list_account_notebooks` | Read the live notebook grid from the signed-in Google account. |
+| `import_account_notebook` | Import a live account notebook with separate local UUID and Google ID. |
+| `sync_library` | Preview or apply account/library changes; missing notebooks are marked, never deleted. |
 | `get_notebook` | Fetch one notebook by `id`. |
 | `select_notebook` | Set a notebook as the active default for `ask_question`. |
 | `update_notebook` | Update name, description, topics, content_types, use_cases, tags, or url. |
