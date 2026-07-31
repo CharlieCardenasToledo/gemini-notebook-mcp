@@ -29,13 +29,16 @@ Call `setup_auth`. A Chrome window opens. Log in to the Google account that owns
 { "name": "setup_auth", "arguments": {} }
 ```
 
-Verify:
+Inspect the saved-state backup:
 
 ```json
 { "name": "get_health", "arguments": {} }
 ```
 
-Expect `"authenticated": true`.
+Expect `"auth_state_present": true`. `get_health` deliberately returns
+`"authenticated": null` because only a real NotebookLM navigation can verify
+whether Google still accepts the session. The next NotebookLM operation performs
+that live check and refreshes the saved cookies after the interface loads.
 
 ### 3. Add a notebook to the local library
 

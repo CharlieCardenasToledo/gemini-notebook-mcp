@@ -20,7 +20,7 @@ export function buildAskQuestionDescription(library: NotebookLibrary): string {
 **Content:** ${active.description}
 **Topics:** ${topics}
 
-> Auth tip: If login is required, use the prompt 'notebooklm.auth-setup' and then verify with the 'get_health' tool. If authentication later fails (e.g., expired cookies), use the prompt 'notebooklm.auth-repair'.
+> Auth tip: If Google requests login, use the prompt 'notebooklm.auth-setup' and then retry the NotebookLM operation. If authentication later fails with a confirmed sign-in redirect, use the prompt 'notebooklm.auth-repair'.
 
 ## What This Tool Is
 - Full conversational research with Gemini (LLM) grounded on your notebook sources
@@ -36,7 +36,7 @@ ${useCases}
 - Ask clarifying questions before implementing; do not guess missing details
 - If multiple notebooks could apply, propose the top 1–2 and ask which to use
 - If task context changes, ask to reset the session or switch notebooks
-- If authentication fails, use the prompts 'notebooklm.auth-repair' (or 'notebooklm.auth-setup') and verify with 'get_health'
+- If Google redirects to sign-in, use the prompts 'notebooklm.auth-repair' (or 'notebooklm.auth-setup') and retry the NotebookLM operation
 - After every NotebookLM answer: pause, compare with the user's goal, and only respond if you are 100% sure the information is complete. Otherwise, plan the next NotebookLM question in the same session.
 
 ## Session Flow (Recommended)
@@ -105,7 +105,7 @@ ${bt}${bt}${bt}
 - Use **list_notebooks** to show available sources
 - Use **select_notebook** to set one active
 
-> Auth tip: If login is required, use the prompt 'notebooklm.auth-setup' and then verify with the 'get_health' tool. If authentication later fails (e.g., expired cookies), use the prompt 'notebooklm.auth-repair'.
+> Auth tip: If Google requests login, use the prompt 'notebooklm.auth-setup' and then retry the NotebookLM operation. If authentication later fails with a confirmed sign-in redirect, use the prompt 'notebooklm.auth-repair'.
 
 Tip: Tell the user you can manage NotebookLM library and ask which notebook to use for the current task.`;
   }

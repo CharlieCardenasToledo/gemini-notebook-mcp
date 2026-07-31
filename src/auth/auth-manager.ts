@@ -6,7 +6,7 @@
  * - Auto-login with credentials (email/password from ENV)
  * - Browser state persistence (cookies + localStorage + sessionStorage)
  * - Cookie expiry validation
- * - State expiry checks (24h file age)
+ * - Saved-state structure validation
  * - Hard reset for clean start
  *
  * Based on the Python implementation from auth.py
@@ -55,9 +55,9 @@ export class AuthManager {
   private stateFilePath: string;
   private sessionFilePath: string;
 
-  constructor() {
-    this.stateFilePath = path.join(CONFIG.browserStateDir, "state.json");
-    this.sessionFilePath = path.join(CONFIG.browserStateDir, "session.json");
+  constructor(browserStateDir = CONFIG.browserStateDir) {
+    this.stateFilePath = path.join(browserStateDir, "state.json");
+    this.sessionFilePath = path.join(browserStateDir, "session.json");
   }
 
   // ============================================================================
@@ -113,12 +113,7 @@ export class AuthManager {
    * Check if saved browser state exists
    */
   async hasSavedState(): Promise<boolean> {
-    try {
-      await fs.access(this.stateFilePath);
-      return true;
-    } catch {
-      return false;
-    }
+    return (await this.getValidStatePath()) !== null;
   }
 
   /**
@@ -133,7 +128,12 @@ export class AuthManager {
   }
 
   /**
-   * Get valid state path (checks expiry)
+   * Get a readable, structurally valid saved-state path.
+   *
+   * File age is deliberately not used as an authentication signal. Google
+   * may keep a session valid for much longer than 24 hours and may also
+   * invalidate a recent cookie server-side. Real authentication is verified
+   * only after navigating to NotebookLM.
    */
   async getValidStatePath(): Promise<string | null> {
     const statePath = this.getStatePath();
@@ -141,13 +141,20 @@ export class AuthManager {
       return null;
     }
 
-    if (await this.isStateExpired()) {
-      log.warning("⚠️  Saved state is expired (>24h old)");
-      log.info("💡 Run setup_auth tool to re-authenticate");
+    try {
+      const rawState = await fs.readFile(statePath, "utf-8");
+      const state = JSON.parse(rawState) as { cookies?: unknown };
+
+      if (!Array.isArray(state.cookies)) {
+        log.warning("⚠️  Saved authentication state is malformed");
+        return null;
+      }
+
+      return statePath;
+    } catch (error) {
+      log.warning(`⚠️  Unable to read saved authentication state: ${error}`);
       return null;
     }
-
-    return statePath;
   }
 
   /**
@@ -253,27 +260,6 @@ export class AuthManager {
     } catch (error) {
       log.warning(`⚠️  Cookie validation failed: ${error}`);
       return false;
-    }
-  }
-
-  /**
-   * Check if the saved state file is too old (>24 hours)
-   */
-  async isStateExpired(): Promise<boolean> {
-    try {
-      const stats = await fs.stat(this.stateFilePath);
-      const fileAgeSeconds = (Date.now() - stats.mtimeMs) / 1000;
-      const maxAgeSeconds = 24 * 60 * 60; // 24 hours
-
-      if (fileAgeSeconds > maxAgeSeconds) {
-        const hoursOld = fileAgeSeconds / 3600;
-        log.warning(`⚠️  Saved state is ${hoursOld.toFixed(1)}h old (max: 24h)`);
-        return true;
-      }
-
-      return false;
-    } catch {
-      return true; // File doesn't exist = expired
     }
   }
 

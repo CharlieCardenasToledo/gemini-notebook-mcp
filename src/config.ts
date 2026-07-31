@@ -137,7 +137,9 @@ const DEFAULTS: Config = {
   notebookUseCases: ["General research"],
 
   // Multi-instance strategy
-  profileStrategy: "auto",
+  // Prefer one stable profile. Silent fallback to a fresh isolated profile can
+  // look like an expired Google session and trigger unnecessary re-login.
+  profileStrategy: "single",
   cloneProfileOnIsolated: false,
   cleanupInstancesOnStartup: true,
   cleanupInstancesOnShutdown: true,
