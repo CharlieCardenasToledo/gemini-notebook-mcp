@@ -11,8 +11,7 @@ and still-pending work.
 | Surface | Version | State |
 | --- | --- | --- |
 | GitHub `main` | 2.3.1 | Merged through PR #13 (`47e0a0a`) |
-| npm registry | 2.3.0 | Published |
-| npm release candidate | 2.3.1 | Merged and validated; publication pending |
+| npm registry | 2.3.1 | Published under the `latest` tag |
 
 ## Completed work
 
@@ -82,22 +81,18 @@ Local validation completed for 2.3.1:
 - `npm audit --json`: zero known vulnerabilities.
 - `npm run package:smoke`: passed with version 2.3.1 and 31 tools.
 - `npm pack --dry-run --json`: valid 2.3.1 tarball with 177 entries.
+- `npm run test:live:readonly`: all seven authenticated, read-only checks passed
+  against the live NotebookLM interface without mutating the account.
 - GitHub CI: CodeQL, package smoke, and all Windows/macOS/Ubuntu jobs on Node
   22/24 passed before PR #13 was merged.
+- npm registry verification: `latest` resolves to 2.3.1 and the remote tarball
+  exposes 177 entries with valid SHA-512 integrity metadata.
 
-## Work required to finish 2.3.1
+## 2.3.1 completion status
 
-1. Run the authenticated read-only suite from a machine with a linked, signed-in
-   browser profile:
-
-   ```bash
-   npm run test:live:readonly
-   ```
-
-   `NOTEBOOKLM_LIVE_NOTEBOOK_ID` may be set to choose the target. This environment had
-   no linked visual browser, so the authenticated suite has not been certified here.
-2. Publish 2.3.1 to npm from the merged commit, preferably with provenance.
-3. Verify the registry version and installed tarball after publication.
+Version 2.3.1 is complete: the implementation is merged, CI and the authenticated
+read-only browser suite pass, npm publication is live, and the remote tarball has been
+verified. No release-specific activity remains open.
 
 ## Remaining product roadmap
 
