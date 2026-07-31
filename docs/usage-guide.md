@@ -1,6 +1,6 @@
 # Usage Guide
 
-Practical end-to-end walkthroughs against v2.0.0. Each section is a self-contained recipe with the exact tool calls / curl commands.
+Practical end-to-end walkthroughs for the current 2.x release. Each section is a self-contained recipe with the exact tool calls / curl commands.
 
 - [First-time setup](#first-time-setup)
 - [Multi-turn session pattern](#multi-turn-session-pattern)
@@ -183,7 +183,7 @@ Generation can take several minutes — keep `timeout_ms` generous. The default 
 {
   "name": "download_audio",
   "arguments": {
-    "destination_dir": "/Users/me/Downloads/notebooklm"
+    "destination_dir": "."
   }
 }
 ```

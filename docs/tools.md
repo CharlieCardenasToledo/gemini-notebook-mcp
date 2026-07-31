@@ -1,6 +1,6 @@
 # Tools
 
-Every tool registered in v2.0.0, with parameter schema, an example invocation (MCP `tools/call` arguments shape), and the expected return shape. New v2 tools are flagged.
+Every tool registered in the current 2.x release, with parameter schema, an example invocation (MCP `tools/call` arguments shape), and the expected return shape.
 
 The server returns each tool result wrapped as `{ "success": true, "data": <object> }` (or `{ "success": false, "error": <string> }`). The shapes below describe the inner `data`.
 
@@ -53,7 +53,8 @@ Ask a question against a notebook. Reuses an existing browser session when `sess
   },
   "_provenance": {
     "provider": "google-notebooklm",
-    "model": "gemini-2.5",
+    "model": "google-managed",
+    "model_selection": "managed-by-notebooklm",
     "via": "chrome-automation",
     "grounding": "user-uploaded-documents",
     "ai_generated": true
@@ -148,7 +149,7 @@ Generate a podcast-style Audio Overview for a notebook. Resolves when the audio 
 }
 ```
 
-Pair with `download_audio` to persist the file. Video / Infographic / Slides are not in v2.0.0.
+Pair with `download_audio` to persist the file. Video / Infographic / Slides are not currently exposed.
 
 ---
 
@@ -160,7 +161,7 @@ Download the most recent Audio Overview to disk.
 
 | Name | Type | Required | Notes |
 |---|---|---|---|
-| `destination_dir` | string | yes | Absolute directory. Created if missing. |
+| `destination_dir` | string | yes | Directory under `NOTEBOOKLM_OUTPUT_DIR`; `.` selects the configured root. Created if missing. |
 | `session_id` | string | no | |
 | `notebook_id` | string | no | |
 | `notebook_url` | string | no | |
@@ -171,7 +172,7 @@ Download the most recent Audio Overview to disk.
 {
   "name": "download_audio",
   "arguments": {
-    "destination_dir": "/Users/me/Downloads/notebooklm"
+    "destination_dir": "."
   }
 }
 ```
@@ -181,7 +182,7 @@ Download the most recent Audio Overview to disk.
 ```jsonc
 {
   "status": "success",
-  "file_path": "/Users/me/Downloads/notebooklm/overview-2026-04-30.wav",
+  "file_path": "<NOTEBOOKLM_OUTPUT_DIR>/overview-2026-04-30.m4a",
   "size_bytes": 9_412_000
 }
 ```
@@ -380,7 +381,7 @@ Opens a visible Chrome for first-time Google login.
 | `show_browser` | bool | no | Default `true` for setup. |
 | `browser_options` | object | no | Same shape as `ask_question`. |
 
-Returns immediately after the window is opened. The user has up to 10 minutes to complete the login. Verify with `get_health` afterwards.
+The call waits for login completion for up to 10 minutes and reports progress. A subsequent NotebookLM operation performs the live authentication check; `get_health` only reports saved-state presence.
 
 ---
 
@@ -397,18 +398,19 @@ Closes all sessions, deletes saved cookies + Chrome profile, opens a fresh login
 
 ## cleanup_data
 
-Categorised preview + delete of every NotebookLM MCP file the server can find on the system. Designed for fresh-start workflows.
+Preview + deletion restricted to the configured `NOTEBOOKLM_DATA_DIR`. The tool never scans or deletes npm caches, Claude/Cursor/VS Code data, system temporary files, or trash.
 
 | Name | Type | Required | Notes |
 |---|---|---|---|
-| `confirm` | bool | yes | `false` = preview only. `true` = delete after preview was reviewed. |
+| `confirm` | bool | yes | `false` = preview only. `true` = execute using the preview token. |
 | `preserve_library` | bool | no | Keep `library.json` while wiping everything else. Default `false`. |
+| `preview_token` | string | when confirming | Expiring one-time token returned by the preview. |
 
 Workflow:
 
-1. `cleanup_data({ confirm: false, preserve_library: true })` — see what will be deleted.
-2. Close all Chrome instances.
-3. `cleanup_data({ confirm: true, preserve_library: true })` — execute.
+1. `cleanup_data({ confirm: false, preserve_library: true })` — review paths, digest, and expiry.
+2. Close all browser sessions.
+3. `cleanup_data({ confirm: true, preview_token: "..." })` — execute only if the manifest is unchanged.
 
 ---
 

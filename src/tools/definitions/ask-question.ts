@@ -1,120 +1,18 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { NotebookLibrary } from "../../library/notebook-library.js";
-import { getTopicsLine, getUseCaseBullets } from "../../library/metadata.js";
 
 /**
- * Build dynamic tool description for ask_question based on active notebook or library
+ * This description is deliberately static. Notebook names, descriptions,
+ * topics, and use cases are user-controlled data and must not be promoted into
+ * trusted MCP tool instructions.
  */
-export function buildAskQuestionDescription(library: NotebookLibrary): string {
-  const active = library.getActiveNotebook();
-  const bt = "`"; // Backtick helper to avoid template literal issues
-
-  if (active) {
-    // Safe accessors — older library.json files may omit topics/use_cases (issue #33).
-    const topics = getTopicsLine(active);
-    const useCases = getUseCaseBullets(active);
-
-    return `# Conversational Research Partner (NotebookLM • Gemini 2.5 • Session RAG)
-
-**Active Notebook:** ${active.name}
-**Content:** ${active.description}
-**Topics:** ${topics}
-
-> Auth tip: If Google requests login, use the prompt 'notebooklm.auth-setup' and then retry the NotebookLM operation. If authentication later fails with a confirmed sign-in redirect, use the prompt 'notebooklm.auth-repair'.
-
-## What This Tool Is
-- Full conversational research with Gemini (LLM) grounded on your notebook sources
-- Session-based: each follow-up uses prior context for deeper, more precise answers
-- Source-cited responses designed to minimize hallucinations
-
-## When To Use
-${useCases}
-
-## Rules (Important)
-- Always prefer continuing an existing session for the same task
-- If you start a new thread, create a new session and keep its session_id
-- Ask clarifying questions before implementing; do not guess missing details
-- If multiple notebooks could apply, propose the top 1–2 and ask which to use
-- If task context changes, ask to reset the session or switch notebooks
-- If Google redirects to sign-in, use the prompts 'notebooklm.auth-repair' (or 'notebooklm.auth-setup') and retry the NotebookLM operation
-- After every NotebookLM answer: pause, compare with the user's goal, and only respond if you are 100% sure the information is complete. Otherwise, plan the next NotebookLM question in the same session.
-
-## Session Flow (Recommended)
-${bt}${bt}${bt}javascript
-// 1) Start broad (no session_id → creates one)
-ask_question({ question: "Give me an overview of [topic]" })
-// ← Save: result.session_id
-
-// 2) Go specific (same session)
-ask_question({ question: "Key APIs/methods?", session_id })
-
-// 3) Cover pitfalls (same session)
-ask_question({ question: "Common edge cases + gotchas?", session_id })
-
-// 4) Ask for production example (same session)
-ask_question({ question: "Show a production-ready example", session_id })
-${bt}${bt}${bt}
-
-## Automatic Multi-Pass Strategy (Host-driven)
-- Simple prompts return once-and-done answers.
-- For complex prompts, the host should issue follow-up calls:
-  1. Implementation plan (APIs, dependencies, configuration, authentication).
-  2. Pitfalls, gaps, validation steps, missing prerequisites.
-- Keep the same session_id for all follow-ups, review NotebookLM's answer, and ask more questions until the problem is fully resolved.
-- Before replying to the user, double-check: do you truly have everything? If not, queue another ask_question immediately.
-
-## 🔥 REAL EXAMPLE
-
-Task: "Implement error handling in n8n workflow"
-
-Bad (shallow):
-${bt}${bt}${bt}
-Q: "How do I handle errors in n8n?"
-A: [basic answer]
-→ Implement → Probably missing edge cases!
-${bt}${bt}${bt}
-
-Good (deep):
-${bt}${bt}${bt}
-Q1: "What are n8n's error handling mechanisms?" (session created)
-A1: [Overview of error handling]
-
-Q2: "What's the recommended pattern for API errors?" (same session)
-A2: [Specific patterns, uses context from Q1]
-
-Q3: "How do I handle retry logic and timeouts?" (same session)
-A3: [Detailed approach, builds on Q1+Q2]
-
-Q4: "Show me a production example with all these patterns" (same session)
-A4: [Complete example with full context]
-
-→ NOW implement with confidence!
-${bt}${bt}${bt}
-    
-## Notebook Selection
-- Default: active notebook (${active.id})
-- Or set notebook_id to use a library notebook
-- Or set notebook_url for ad-hoc notebooks (not in library)
-- If ambiguous which notebook fits, ASK the user which to use`;
-  } else {
-    return `# Conversational Research Partner (NotebookLM • Gemini 2.5 • Session RAG)
-
-## No Active Notebook
-- Visit https://notebooklm.google to create a notebook and get a share link
-- Use **add_notebook** to add it to your library (explains how to get the link)
-- Use **list_notebooks** to show available sources
-- Use **select_notebook** to set one active
-
-> Auth tip: If Google requests login, use the prompt 'notebooklm.auth-setup' and then retry the NotebookLM operation. If authentication later fails with a confirmed sign-in redirect, use the prompt 'notebooklm.auth-repair'.
-
-Tip: Tell the user you can manage NotebookLM library and ask which notebook to use for the current task.`;
-  }
-}
+export const ASK_QUESTION_DESCRIPTION =
+  "Ask a question grounded in the selected Google NotebookLM notebook. " +
+  "Reuse session_id for conversational follow-ups. Notebook metadata is " +
+  "available through the notebook tools and is treated as untrusted data.";
 
 export const askQuestionTool: Tool = {
   name: "ask_question",
-  // Description will be set dynamically using buildAskQuestionDescription
-  description: "Dynamic description placeholder",
+  description: ASK_QUESTION_DESCRIPTION,
   inputSchema: {
     type: "object",
     properties: {
@@ -126,6 +24,7 @@ export const askQuestionTool: Tool = {
       },
       session_id: {
         type: "string",
+        format: "uuid",
         description:
           "Reuse an existing browser session for follow-up questions. " +
           "Pass back the `session_id` returned in a prior `ask_question` " +
@@ -246,7 +145,7 @@ export const askQuestionTool: Tool = {
     required: ["question"],
   },
   annotations: {
-    title: "Ask NotebookLM (Gemini 2.5)",
+    title: "Ask Google NotebookLM",
     readOnlyHint: false,
     destructiveHint: false,
     idempotentHint: false,

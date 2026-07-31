@@ -15,8 +15,9 @@ import type {
 } from "../library/types.js";
 import type { AddSourceResult } from "../notebooklm/sources.js";
 import type { AudioGenerationResult, DownloadAudioResult } from "../notebooklm/audio.js";
+import { resolveOutputDirectory } from "../notebooklm/audio.js";
 import { CONFIG, applyBrowserOptions, withRuntimeConfig, type BrowserOptions } from "../config.js";
-import { log } from "../utils/logger.js";
+import { hashLogValue, log } from "../utils/logger.js";
 import type { AskQuestionResult, ToolResult, ProgressCallback } from "../types.js";
 import { RateLimitError } from "../errors.js";
 import { CleanupManager } from "../utils/cleanup-manager.js";
@@ -45,11 +46,20 @@ export class ToolHandlers {
   private sessionManager: SessionManager;
   private authManager: AuthManager;
   private library: NotebookLibrary;
+  private cleanupManager: CleanupManager;
+  private ownerId: string;
 
-  constructor(sessionManager: SessionManager, authManager: AuthManager, library: NotebookLibrary) {
+  constructor(
+    sessionManager: SessionManager,
+    authManager: AuthManager,
+    library: NotebookLibrary,
+    ownerId = "local-stdio-client"
+  ) {
     this.sessionManager = sessionManager;
     this.authManager = authManager;
     this.library = library;
+    this.cleanupManager = new CleanupManager();
+    this.ownerId = ownerId;
   }
 
   /**
@@ -78,15 +88,12 @@ export class ToolHandlers {
     } = args;
 
     log.info(`🔧 [TOOL] ask_question called`);
-    log.info(`  Question: "${question.substring(0, 100)}"...`);
+    log.info(`  Question characters: ${question.length}`);
     if (session_id) {
-      log.info(`  Session ID: ${session_id}`);
+      log.info(`  Session ID hash: ${hashLogValue(session_id)}`);
     }
     if (notebook_id) {
-      log.info(`  Notebook ID: ${notebook_id}`);
-    }
-    if (notebook_url) {
-      log.info(`  Notebook URL: ${notebook_url}`);
+      log.info(`  Notebook ID hash: ${hashLogValue(notebook_id)}`);
     }
 
     try {
@@ -100,7 +107,7 @@ export class ToolHandlers {
         }
 
         resolvedNotebookUrl = notebook.url;
-        log.info(`  Resolved notebook: ${notebook.name}`);
+        log.info(`  Resolved notebook from library`);
       } else if (!resolvedNotebookUrl) {
         const active = this.library.getActiveNotebook();
         if (active) {
@@ -109,7 +116,7 @@ export class ToolHandlers {
             throw new Error(`Active notebook not found: ${active.id}`);
           }
           resolvedNotebookUrl = notebook.url;
-          log.info(`  Using active notebook: ${notebook.name}`);
+          log.info(`  Using active notebook`);
         }
       }
 
@@ -135,7 +142,8 @@ export class ToolHandlers {
         const session = await this.sessionManager.getOrCreateSession(
           session_id,
           resolvedNotebookUrl,
-          overrideHeadless
+          overrideHeadless,
+          this.ownerId
         );
 
         // Progress: Asking question
@@ -193,13 +201,7 @@ export class ToolHandlers {
         log.error(`🚫 [TOOL] Rate limit detected`);
         return {
           success: false,
-          error:
-            "NotebookLM rate limit reached (50 queries/day for free accounts).\n\n" +
-            "You can:\n" +
-            "1. Use the 're_auth' tool to login with a different Google account\n" +
-            "2. Wait until tomorrow for the quota to reset\n" +
-            "3. Upgrade to Google AI Pro/Ultra for 5x higher limits\n\n" +
-            `Original error: ${errorMessage}`,
+          error: "NotebookLM reported a rate or quota limit. Limits vary by account and plan.",
         };
       }
 
@@ -235,8 +237,8 @@ export class ToolHandlers {
     log.info(`🔧 [TOOL] list_sessions called`);
 
     try {
-      const stats = this.sessionManager.getStats();
-      const sessions = this.sessionManager.getAllSessionsInfo();
+      const stats = this.sessionManager.getStats(this.ownerId);
+      const sessions = this.sessionManager.getAllSessionsInfo(this.ownerId);
 
       const result = {
         active_sessions: stats.active_sessions,
@@ -279,10 +281,10 @@ export class ToolHandlers {
     const { session_id } = args;
 
     log.info(`🔧 [TOOL] close_session called`);
-    log.info(`  Session ID: ${session_id}`);
+    log.info(`  Session ID hash: ${hashLogValue(session_id)}`);
 
     try {
-      const closed = await this.sessionManager.closeSession(session_id);
+      const closed = await this.sessionManager.closeSession(session_id, this.ownerId);
 
       if (closed) {
         log.success(`✅ [TOOL] close_session completed`);
@@ -295,7 +297,7 @@ export class ToolHandlers {
           },
         };
       } else {
-        log.warning(`⚠️  [TOOL] Session ${session_id} not found`);
+        log.warning(`⚠️  [TOOL] Session ${hashLogValue(session_id)} not found`);
         return {
           success: false,
           error: `Session ${session_id} not found`,
@@ -320,13 +322,13 @@ export class ToolHandlers {
     const { session_id } = args;
 
     log.info(`🔧 [TOOL] reset_session called`);
-    log.info(`  Session ID: ${session_id}`);
+    log.info(`  Session ID hash: ${hashLogValue(session_id)}`);
 
     try {
-      const session = this.sessionManager.getSession(session_id);
+      const session = this.sessionManager.getSession(session_id, this.ownerId);
 
       if (!session) {
-        log.warning(`⚠️  [TOOL] Session ${session_id} not found`);
+        log.warning(`⚠️  [TOOL] Session ${hashLogValue(session_id)} not found`);
         return {
           success: false,
           error: `Session ${session_id} not found`,
@@ -386,7 +388,7 @@ export class ToolHandlers {
       const authStatePresent = await this.authManager.hasSavedState();
 
       // Get session stats
-      const stats = this.sessionManager.getStats();
+      const stats = this.sessionManager.getStats(this.ownerId);
 
       // Resolve current notebook from the library — `CONFIG.notebookUrl` is a
       // legacy field (v1) that's no longer set in v2's library-driven flow.
@@ -611,11 +613,11 @@ export class ToolHandlers {
     args: AddNotebookInput
   ): Promise<ToolResult<{ notebook: NotebookEntry }>> {
     log.info(`🔧 [TOOL] add_notebook called`);
-    log.info(`  Name: ${args.name}`);
+    log.info(`  Notebook name characters: ${args.name.length}`);
 
     try {
       const notebook = this.library.addNotebook(args);
-      log.success(`✅ [TOOL] add_notebook completed: ${notebook.id}`);
+      log.success(`✅ [TOOL] add_notebook completed`);
       return {
         success: true,
         data: { notebook },
@@ -681,19 +683,19 @@ export class ToolHandlers {
    */
   async handleGetNotebook(args: { id: string }): Promise<ToolResult<{ notebook: NotebookEntry }>> {
     log.info(`🔧 [TOOL] get_notebook called`);
-    log.info(`  ID: ${args.id}`);
+    log.info(`  Notebook ID hash: ${hashLogValue(args.id)}`);
 
     try {
       const notebook = this.library.getNotebook(args.id);
       if (!notebook) {
-        log.warning(`⚠️  [TOOL] Notebook not found: ${args.id}`);
+        log.warning(`⚠️  [TOOL] Notebook not found: ${hashLogValue(args.id)}`);
         return {
           success: false,
           error: `Notebook not found: ${args.id}`,
         };
       }
 
-      log.success(`✅ [TOOL] get_notebook completed: ${notebook.name}`);
+      log.success(`✅ [TOOL] get_notebook completed`);
       return {
         success: true,
         data: { notebook },
@@ -715,11 +717,11 @@ export class ToolHandlers {
     id: string;
   }): Promise<ToolResult<{ notebook: NotebookEntry }>> {
     log.info(`🔧 [TOOL] select_notebook called`);
-    log.info(`  ID: ${args.id}`);
+    log.info(`  Notebook ID hash: ${hashLogValue(args.id)}`);
 
     try {
       const notebook = this.library.selectNotebook(args.id);
-      log.success(`✅ [TOOL] select_notebook completed: ${notebook.name}`);
+      log.success(`✅ [TOOL] select_notebook completed`);
       return {
         success: true,
         data: { notebook },
@@ -741,11 +743,11 @@ export class ToolHandlers {
     args: UpdateNotebookInput
   ): Promise<ToolResult<{ notebook: NotebookEntry }>> {
     log.info(`🔧 [TOOL] update_notebook called`);
-    log.info(`  ID: ${args.id}`);
+    log.info(`  Notebook ID hash: ${hashLogValue(args.id)}`);
 
     try {
       const notebook = this.library.updateNotebook(args);
-      log.success(`✅ [TOOL] update_notebook completed: ${notebook.name}`);
+      log.success(`✅ [TOOL] update_notebook completed`);
       return {
         success: true,
         data: { notebook },
@@ -767,12 +769,12 @@ export class ToolHandlers {
     id: string;
   }): Promise<ToolResult<{ removed: boolean; closed_sessions: number }>> {
     log.info(`🔧 [TOOL] remove_notebook called`);
-    log.info(`  ID: ${args.id}`);
+    log.info(`  Notebook ID hash: ${hashLogValue(args.id)}`);
 
     try {
       const notebook = this.library.getNotebook(args.id);
       if (!notebook) {
-        log.warning(`⚠️  [TOOL] Notebook not found: ${args.id}`);
+        log.warning(`⚠️  [TOOL] Notebook not found: ${hashLogValue(args.id)}`);
         return {
           success: false,
           error: `Notebook not found: ${args.id}`,
@@ -781,14 +783,17 @@ export class ToolHandlers {
 
       const removed = this.library.removeNotebook(args.id);
       if (removed) {
-        const closedSessions = await this.sessionManager.closeSessionsForNotebook(notebook.url);
+        const closedSessions = await this.sessionManager.closeSessionsForNotebook(
+          notebook.url,
+          this.ownerId
+        );
         log.success(`✅ [TOOL] remove_notebook completed`);
         return {
           success: true,
           data: { removed: true, closed_sessions: closedSessions },
         };
       } else {
-        log.warning(`⚠️  [TOOL] Notebook not found: ${args.id}`);
+        log.warning(`⚠️  [TOOL] Notebook not found: ${hashLogValue(args.id)}`);
         return {
           success: false,
           error: `Notebook not found: ${args.id}`,
@@ -811,7 +816,7 @@ export class ToolHandlers {
     query: string;
   }): Promise<ToolResult<{ notebooks: NotebookEntry[] }>> {
     log.info(`🔧 [TOOL] search_notebooks called`);
-    log.info(`  Query: "${args.query}"`);
+    log.info(`  Search query characters: ${args.query.length}`);
 
     try {
       const notebooks = this.library.searchNotebooks(args.query);
@@ -856,13 +861,20 @@ export class ToolHandlers {
   /**
    * Handle cleanup_data tool
    *
-   * ULTRATHINK Deep Cleanup - scans entire system for ALL NotebookLM MCP files
+   * Constrained, token-bound cleanup of NOTEBOOKLM_DATA_DIR only.
    */
-  async handleCleanupData(args: { confirm: boolean; preserve_library?: boolean }): Promise<
+  async handleCleanupData(args: {
+    confirm: boolean;
+    preserve_library?: boolean;
+    preview_token?: string;
+  }): Promise<
     ToolResult<{
       status: string;
       mode: string;
       preview?: {
+        preview_token: string;
+        expires_at: string;
+        path_digest: string;
         categories: Array<{
           name: string;
           description: string;
@@ -881,29 +893,22 @@ export class ToolHandlers {
       };
     }>
   > {
-    const { confirm, preserve_library = false } = args;
+    const { confirm, preserve_library = false, preview_token } = args;
 
     log.info(`🔧 [TOOL] cleanup_data called`);
     log.info(`  Confirm: ${confirm}`);
     log.info(`  Preserve Library: ${preserve_library}`);
 
-    const cleanupManager = new CleanupManager();
-
     try {
-      // Always run in deep mode
-      const mode = "deep";
+      const mode = "data";
 
       if (!confirm) {
-        // Preview mode - show what would be deleted
-        log.info(`  📋 Generating cleanup preview (mode: ${mode})...`);
-
-        const preview = await cleanupManager.getCleanupPaths(mode, preserve_library);
-        const platformInfo = cleanupManager.getPlatformInfo();
+        await this.sessionManager.prepareForCleanup();
+        const preview = await this.cleanupManager.createPreview(preserve_library);
 
         log.info(
-          `  Found ${preview.totalPaths.length} items (${cleanupManager.formatBytes(preview.totalSizeBytes)})`
+          `  Found ${preview.totalPaths.length} owned items (${this.cleanupManager.formatBytes(preview.totalSizeBytes)})`
         );
-        log.info(`  Platform: ${platformInfo.platform}`);
 
         return {
           success: true,
@@ -911,6 +916,9 @@ export class ToolHandlers {
             status: "preview",
             mode,
             preview: {
+              preview_token: preview.previewToken,
+              expires_at: preview.expiresAt,
+              path_digest: preview.pathDigest,
               categories: preview.categories,
               totalPaths: preview.totalPaths.length,
               totalSizeBytes: preview.totalSizeBytes,
@@ -918,10 +926,15 @@ export class ToolHandlers {
           },
         };
       } else {
-        // Cleanup mode - actually delete files
-        log.info(`  🗑️  Performing cleanup (mode: ${mode})...`);
+        if (!preview_token) {
+          return {
+            success: false,
+            error: "preview_token is required when confirm=true; generate a fresh preview first",
+          };
+        }
 
-        const result = await cleanupManager.performCleanup(mode, preserve_library);
+        await this.sessionManager.prepareForCleanup();
+        const result = await this.cleanupManager.performCleanup(preview_token);
 
         if (result.success) {
           log.success(
@@ -994,7 +1007,8 @@ export class ToolHandlers {
         const session = await this.sessionManager.getOrCreateSession(
           args.session_id,
           url,
-          overrideHeadless
+          overrideHeadless,
+          this.ownerId
         );
         const result = await session.addSource({
           type: args.type,
@@ -1031,7 +1045,8 @@ export class ToolHandlers {
         const session = await this.sessionManager.getOrCreateSession(
           args.session_id,
           url,
-          overrideHeadless
+          overrideHeadless,
+          this.ownerId
         );
         const result = await session.generateAudio({
           customPrompt: args.custom_prompt,
@@ -1071,7 +1086,8 @@ export class ToolHandlers {
         const session = await this.sessionManager.getOrCreateSession(
           args.session_id,
           url,
-          overrideHeadless
+          overrideHeadless,
+          this.ownerId
         );
         const result = await session.getAudioStatus();
         return { success: true, data: { result } };
@@ -1098,11 +1114,13 @@ export class ToolHandlers {
     const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
     return await withRuntimeConfig(effectiveConfig, async () => {
       try {
+        resolveOutputDirectory(args.destination_dir);
         const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
         const session = await this.sessionManager.getOrCreateSession(
           args.session_id,
           url,
-          overrideHeadless
+          overrideHeadless,
+          this.ownerId
         );
         const result = await session.downloadAudio(args.destination_dir);
         return { success: result.success, data: { result } };

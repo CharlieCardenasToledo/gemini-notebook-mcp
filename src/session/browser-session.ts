@@ -38,7 +38,7 @@ import {
   type DownloadAudioResult,
 } from "../notebooklm/audio.js";
 import { getRuntimeConfig } from "../config.js";
-import { log } from "../utils/logger.js";
+import { hashLogValue, log } from "../utils/logger.js";
 import type { SessionInfo, ProgressCallback } from "../types.js";
 import { RateLimitError } from "../errors.js";
 
@@ -70,7 +70,7 @@ export class BrowserSession {
     this.lastActivity = Date.now();
     this.messageCount = 0;
 
-    log.info(`🆕 BrowserSession ${sessionId} created`);
+    log.info(`🆕 BrowserSession ${hashLogValue(sessionId)} created`);
   }
 
   /**
@@ -79,11 +79,11 @@ export class BrowserSession {
   async init(): Promise<void> {
     const config = getRuntimeConfig();
     if (this.initialized) {
-      log.warning(`⚠️  Session ${this.sessionId} already initialized`);
+      log.warning(`⚠️  Session ${hashLogValue(this.sessionId)} already initialized`);
       return;
     }
 
-    log.info(`🚀 Initializing session ${this.sessionId}...`);
+    log.info(`🚀 Initializing session ${hashLogValue(this.sessionId)}...`);
 
     try {
       // Ensure a valid shared context
@@ -107,7 +107,7 @@ export class BrowserSession {
       log.success(`  ✅ Created new page`);
 
       // Navigate to notebook
-      log.info(`  🌐 Navigating to: ${this.notebookUrl}`);
+      log.info(`  🌐 Navigating to configured notebook`);
       await this.page.goto(this.notebookUrl, {
         waitUntil: "domcontentloaded",
         timeout: config.browserTimeout,
@@ -121,7 +121,7 @@ export class BrowserSession {
       const isAuthenticated = cookiesAreValid && !this.isAuthenticationPage();
 
       if (!isAuthenticated) {
-        log.warning(`  🔑 Session ${this.sessionId} needs authentication`);
+        log.warning(`  🔑 Session ${hashLogValue(this.sessionId)} needs authentication`);
         const loginSuccess = await this.ensureAuthenticated();
         if (!loginSuccess) {
           throw new Error("Failed to authenticate session");
@@ -156,9 +156,9 @@ export class BrowserSession {
 
       this.initialized = true;
       this.updateActivity();
-      log.success(`✅ Session ${this.sessionId} initialized successfully`);
+      log.success(`✅ Session ${hashLogValue(this.sessionId)} initialized successfully`);
     } catch (error) {
-      log.error(`❌ Failed to initialize session ${this.sessionId}: ${error}`);
+      log.error(`❌ Failed to initialize session ${hashLogValue(this.sessionId)}: ${error}`);
       if (this.page) {
         await this.page.close();
         this.page = null;
@@ -241,7 +241,7 @@ export class BrowserSession {
       throw new Error("Page not initialized");
     }
 
-    log.info(`🔑 Checking authentication for session ${this.sessionId}...`);
+    log.info(`🔑 Checking authentication for session ${hashLogValue(this.sessionId)}...`);
 
     // Check cookie validity
     const isValid = await this.authManager.validateCookiesExpiry(this.context);
@@ -418,7 +418,9 @@ export class BrowserSession {
         await this.init();
       }
 
-      log.info(`💬 [${this.sessionId}] Asking: "${question.substring(0, 100)}..."`);
+      log.info(
+        `💬 [${hashLogValue(this.sessionId)}] Asking question (${question.length} characters)`
+      );
       const page = this.page!;
       // Ensure we're still authenticated
       await sendProgress?.("Verifying authentication...", 2, 5);
@@ -510,9 +512,7 @@ export class BrowserSession {
       // Check for rate limit errors AFTER receiving answer
       log.info(`  🔍 Checking for rate limit errors...`);
       if (await this.detectRateLimitError()) {
-        throw new RateLimitError(
-          "NotebookLM rate limit reached (50 queries/day for free accounts)"
-        );
+        throw new RateLimitError("NotebookLM reported a rate or quota limit");
       }
 
       // Update session stats
@@ -520,7 +520,7 @@ export class BrowserSession {
       this.updateActivity();
 
       log.success(
-        `✅ [${this.sessionId}] Received answer (${answer.length} chars, ${this.messageCount} total messages)`
+        `✅ [${hashLogValue(this.sessionId)}] Received answer (${answer.length} chars, ${this.messageCount} total messages)`
       );
 
       return answer;
@@ -549,7 +549,7 @@ export class BrowserSession {
           throw e2;
         }
       }
-      log.error(`❌ [${this.sessionId}] Failed to ask question: ${msg}`);
+      log.error(`❌ [${hashLogValue(this.sessionId)}] Failed to ask question: ${msg}`);
       throw error;
     }
   }
@@ -564,10 +564,9 @@ export class BrowserSession {
   }
 
   private async addSourceUnlocked(input: AddSourceInput): Promise<AddSourceResult> {
-    if (!this.initialized || !this.page || this.isPageClosedSafe()) {
-      await this.init();
-    }
-    return await addSourceToPage(this.page!, input);
+    return await this.withAuthenticatedNotebookPage("add_source", (page) =>
+      addSourceToPage(page, input)
+    );
   }
 
   /**
@@ -580,10 +579,9 @@ export class BrowserSession {
   private async generateAudioUnlocked(
     options: GenerateAudioOptions = {}
   ): Promise<AudioGenerationResult> {
-    if (!this.initialized || !this.page || this.isPageClosedSafe()) {
-      await this.init();
-    }
-    return await generateAudioOnPage(this.page!, options);
+    return await this.withAuthenticatedNotebookPage("generate_audio", (page) =>
+      generateAudioOnPage(page, options)
+    );
   }
 
   /**
@@ -594,10 +592,9 @@ export class BrowserSession {
   }
 
   private async getAudioStatusUnlocked(): Promise<AudioGenerationResult> {
-    if (!this.initialized || !this.page || this.isPageClosedSafe()) {
-      await this.init();
-    }
-    return await getAudioStatusOnPage(this.page!);
+    return await this.withAuthenticatedNotebookPage("get_audio_status", (page) =>
+      getAudioStatusOnPage(page)
+    );
   }
 
   /**
@@ -608,10 +605,50 @@ export class BrowserSession {
   }
 
   private async downloadAudioUnlocked(destinationDir: string): Promise<DownloadAudioResult> {
-    if (!this.initialized || !this.page || this.isPageClosedSafe()) {
-      await this.init();
+    return await this.withAuthenticatedNotebookPage("download_audio", (page) =>
+      downloadAudioOnPage(page, destinationDir)
+    );
+  }
+
+  private async withAuthenticatedNotebookPage<T>(
+    operationName: string,
+    operation: (page: Page) => Promise<T>
+  ): Promise<T> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (
+          !this.initialized ||
+          !this.page ||
+          this.isPageClosedSafe() ||
+          this.isAuthenticationPage()
+        ) {
+          if (this.page && !this.isPageClosedSafe()) {
+            await this.page.close().catch(() => undefined);
+          }
+          this.page = null;
+          this.initialized = false;
+          await this.init();
+        }
+
+        if (!this.page || this.isAuthenticationPage()) {
+          throw new Error("AUTH_REQUIRED: Google requested sign-in");
+        }
+
+        return await operation(this.page);
+      } catch (error) {
+        if (attempt === 0 && isRecoverableBrowserOperationError(error)) {
+          log.warning(`  ♻️  Recovering browser before retrying ${operationName}`);
+          if (this.page && !this.isPageClosedSafe()) {
+            await this.page.close().catch(() => undefined);
+          }
+          this.page = null;
+          this.initialized = false;
+          continue;
+        }
+        throw error;
+      }
     }
-    return await downloadAudioOnPage(this.page!, destinationDir);
+    throw new Error(`${operationName} failed after browser recovery`);
   }
 
   /**
@@ -704,7 +741,7 @@ export class BrowserSession {
       if (url.includes("addSource=true") || url.includes("?")) {
         const cleanUrl = url.replace(/[?&]addSource=true/g, "").replace(/&$/, "");
         if (cleanUrl !== url) {
-          log.info(`  ↻ Cleaning URL state: ${url} → ${cleanUrl}`);
+          log.diagnostic("Cleaning NotebookLM URL state", `${url} -> ${cleanUrl}`);
           await this.page
             .goto(cleanUrl, { waitUntil: "domcontentloaded", timeout: 15_000 })
             .catch(() => undefined);
@@ -740,7 +777,7 @@ export class BrowserSession {
    * Detect if a rate limit error occurred
    *
    * Searches the page for error messages indicating rate limit/quota exhaustion.
-   * Free NotebookLM accounts have 50 queries/day limit.
+   * Account limits vary and can change; do not assume a fixed allowance.
    *
    * @returns true if rate limit error detected, false otherwise
    */
@@ -785,7 +822,8 @@ export class BrowserSession {
             const lower = text.toLowerCase();
 
             if (keywords.some((k) => lower.includes(k))) {
-              log.error(`🚫 Rate limit detected: ${text.slice(0, 100)}`);
+              log.error(`🚫 Rate limit detected in NotebookLM UI`);
+              log.diagnostic("Rate-limit UI text", text.slice(0, 500));
               return true;
             }
           } catch {
@@ -845,7 +883,7 @@ export class BrowserSession {
       if (!this.initialized || !this.page || this.isPageClosedSafe()) {
         await this.init();
       }
-      log.info(`🔄 [${this.sessionId}] Resetting chat history...`);
+      log.info(`🔄 [${hashLogValue(this.sessionId)}] Resetting chat history...`);
       const page = this.page as Page;
 
       // Reloading does not clear NotebookLM's server-side conversation. Use
@@ -884,7 +922,7 @@ export class BrowserSession {
       this.messageCount = 0;
       this.updateActivity();
 
-      log.success(`✅ [${this.sessionId}] Chat history reset`);
+      log.success(`✅ [${hashLogValue(this.sessionId)}] Chat history reset`);
     };
 
     try {
@@ -906,7 +944,7 @@ export class BrowserSession {
         await resetOnce();
         return;
       }
-      log.error(`❌ [${this.sessionId}] Failed to reset: ${msg}`);
+      log.error(`❌ [${hashLogValue(this.sessionId)}] Failed to reset: ${msg}`);
       throw error;
     }
   }
@@ -919,7 +957,7 @@ export class BrowserSession {
   }
 
   private async closeUnlocked(): Promise<void> {
-    log.info(`🛑 Closing session ${this.sessionId}...`);
+    log.info(`🛑 Closing session ${hashLogValue(this.sessionId)}...`);
 
     if (this.page) {
       try {
@@ -932,7 +970,7 @@ export class BrowserSession {
     }
 
     this.initialized = false;
-    log.success(`✅ Session ${this.sessionId} closed`);
+    log.success(`✅ Session ${hashLogValue(this.sessionId)} closed`);
   }
 
   /**
@@ -979,4 +1017,11 @@ export class BrowserSession {
   isInitialized(): boolean {
     return this.initialized && this.page !== null;
   }
+}
+
+function isRecoverableBrowserOperationError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /has been closed|target .*closed|browser.*closed|context.*closed|page.*closed|crash/i.test(
+    message
+  );
 }

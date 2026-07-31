@@ -43,6 +43,7 @@ export const sessionManagementTools: Tool[] = [
       properties: {
         session_id: {
           type: "string",
+          format: "uuid",
           description:
             "Session id to close. Obtain from `list_sessions` or from any " +
             "prior `ask_question` response (`result.session_id`).",
@@ -70,6 +71,7 @@ export const sessionManagementTools: Tool[] = [
       properties: {
         session_id: {
           type: "string",
+          format: "uuid",
           description:
             "Session id to reset. Obtain from `list_sessions` or from a " +
             "prior `ask_question` response (`result.session_id`).",

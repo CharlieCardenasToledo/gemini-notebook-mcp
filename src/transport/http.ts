@@ -24,6 +24,7 @@ import type { Server as McpServer } from "@modelcontextprotocol/sdk/server/index
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../utils/logger.js";
+import { APP_VERSION } from "../version.js";
 
 export interface HttpTransportOptions {
   port: number;
@@ -135,7 +136,9 @@ async function handleRequest(
 
   if (url.pathname === "/healthz" && req.method === "GET") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", protocol: "mcp-streamable-http" }));
+    res.end(
+      JSON.stringify({ status: "ok", version: APP_VERSION, protocol: "mcp-streamable-http" })
+    );
     return;
   }
 

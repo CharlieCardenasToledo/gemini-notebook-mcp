@@ -16,9 +16,9 @@ import type { AuthManager } from "../auth/auth-manager.js";
 import { BrowserSession } from "./browser-session.js";
 import { SharedContextManager } from "./shared-context-manager.js";
 import { CONFIG, getRuntimeConfig } from "../config.js";
-import { log } from "../utils/logger.js";
+import { hashLogValue, log } from "../utils/logger.js";
 import type { SessionInfo } from "../types.js";
-import { randomBytes } from "crypto";
+import { randomUUID } from "node:crypto";
 import { normalizeNotebookUrl } from "../notebooklm/url.js";
 import { Selectors } from "../notebooklm/selectors.js";
 
@@ -34,10 +34,17 @@ export interface AccountNotebookSummary {
   sourceCount: number | null;
 }
 
+interface OwnedBrowserSession {
+  ownerId: string;
+  session: BrowserSession;
+}
+
+const LOCAL_OWNER_ID = "local-stdio-client";
+
 export class SessionManager {
   private authManager: AuthManager;
   private sharedContextManager: SharedContextManager;
-  private sessions: Map<string, BrowserSession> = new Map();
+  private sessions: Map<string, OwnedBrowserSession> = new Map();
   private maxSessions: number;
   private sessionTimeout: number;
   private cleanupInterval?: NodeJS.Timeout;
@@ -68,7 +75,7 @@ export class SessionManager {
    * Generate a unique session ID
    */
   private generateSessionId(): string {
-    return randomBytes(4).toString("hex");
+    return randomUUID();
   }
 
   /**
@@ -81,7 +88,8 @@ export class SessionManager {
   async getOrCreateSession(
     sessionId?: string,
     notebookUrl?: string,
-    overrideHeadless?: boolean
+    overrideHeadless?: boolean,
+    ownerId = LOCAL_OWNER_ID
   ): Promise<BrowserSession> {
     let release!: () => void;
     const previous = this.sessionMutationTail;
@@ -90,7 +98,12 @@ export class SessionManager {
     });
     await previous;
     try {
-      return await this.getOrCreateSessionUnlocked(sessionId, notebookUrl, overrideHeadless);
+      return await this.getOrCreateSessionUnlocked(
+        sessionId,
+        notebookUrl,
+        overrideHeadless,
+        ownerId
+      );
     } finally {
       release();
     }
@@ -99,7 +112,8 @@ export class SessionManager {
   private async getOrCreateSessionUnlocked(
     sessionId?: string,
     notebookUrl?: string,
-    overrideHeadless?: boolean
+    overrideHeadless?: boolean,
+    ownerId = LOCAL_OWNER_ID
   ): Promise<BrowserSession> {
     // Determine target notebook URL
     const requestedUrl = (notebookUrl || CONFIG.notebookUrl || "").trim();
@@ -111,7 +125,7 @@ export class SessionManager {
     // Generate ID if not provided
     if (!sessionId) {
       sessionId = this.generateSessionId();
-      log.info(`🆕 Auto-generated session ID: ${sessionId}`);
+      log.info(`🆕 Auto-generated session ID hash: ${hashLogValue(sessionId)}`);
     }
 
     // Check if browser visibility mode needs to change
@@ -136,14 +150,18 @@ export class SessionManager {
 
     // Return existing session if found
     if (this.sessions.has(sessionId)) {
-      const session = this.sessions.get(sessionId)!;
+      const owned = this.sessions.get(sessionId)!;
+      if (owned.ownerId !== ownerId) {
+        throw new Error("Session not found");
+      }
+      const session = owned.session;
       if (session.notebookUrl !== targetUrl) {
-        log.warning(`♻️  Replacing session ${sessionId} with new notebook URL`);
+        log.warning(`♻️  Replacing session ${hashLogValue(sessionId)} with new notebook URL`);
         await session.close();
         this.sessions.delete(sessionId);
       } else {
         session.updateActivity();
-        log.success(`♻️  Reusing existing session ${sessionId}`);
+        log.success(`♻️  Reusing existing session ${hashLogValue(sessionId)}`);
         return session;
       }
     }
@@ -151,7 +169,7 @@ export class SessionManager {
     // Check if we need to free up space
     if (this.sessions.size >= this.maxSessions) {
       log.warning(`⚠️  Max sessions (${this.maxSessions}) reached, cleaning up...`);
-      const freed = await this.cleanupOldestSession();
+      const freed = await this.cleanupOldestSession(ownerId);
       if (!freed) {
         throw new Error(
           `Max sessions (${this.maxSessions}) reached and no inactive sessions to clean up`
@@ -160,7 +178,7 @@ export class SessionManager {
     }
 
     // Create new session
-    log.info(`🆕 Creating new session ${sessionId}...`);
+    log.info(`🆕 Creating new session ${hashLogValue(sessionId)}...`);
     if (overrideHeadless !== undefined) {
       log.info(`  Show browser: ${overrideHeadless}`);
     }
@@ -177,9 +195,9 @@ export class SessionManager {
       );
       await session.init();
 
-      this.sessions.set(sessionId, session);
+      this.sessions.set(sessionId, { ownerId, session });
       log.success(
-        `✅ Session ${sessionId} created (${this.sessions.size}/${this.maxSessions} active)`
+        `✅ Session ${hashLogValue(sessionId)} created (${this.sessions.size}/${this.maxSessions} active)`
       );
       return session;
     } catch (error) {
@@ -191,25 +209,27 @@ export class SessionManager {
   /**
    * Get an existing session by ID
    */
-  getSession(sessionId: string): BrowserSession | null {
-    return this.sessions.get(sessionId) || null;
+  getSession(sessionId: string, ownerId = LOCAL_OWNER_ID): BrowserSession | null {
+    const owned = this.sessions.get(sessionId);
+    return owned?.ownerId === ownerId ? owned.session : null;
   }
 
   /**
    * Close and remove a specific session
    */
-  async closeSession(sessionId: string): Promise<boolean> {
-    if (!this.sessions.has(sessionId)) {
-      log.warning(`⚠️  Session ${sessionId} not found`);
+  async closeSession(sessionId: string, ownerId = LOCAL_OWNER_ID): Promise<boolean> {
+    const owned = this.sessions.get(sessionId);
+    if (!owned || owned.ownerId !== ownerId) {
+      log.warning(`⚠️  Session ${hashLogValue(sessionId)} not found`);
       return false;
     }
 
-    const session = this.sessions.get(sessionId)!;
+    const session = owned.session;
     await session.close();
     this.sessions.delete(sessionId);
 
     log.success(
-      `✅ Session ${sessionId} closed (${this.sessions.size}/${this.maxSessions} active)`
+      `✅ Session ${hashLogValue(sessionId)} closed (${this.sessions.size}/${this.maxSessions} active)`
     );
     return true;
   }
@@ -217,15 +237,15 @@ export class SessionManager {
   /**
    * Close all sessions that are using the provided notebook URL
    */
-  async closeSessionsForNotebook(url: string): Promise<number> {
+  async closeSessionsForNotebook(url: string, ownerId = LOCAL_OWNER_ID): Promise<number> {
     let closed = 0;
 
-    for (const [sessionId, session] of Array.from(this.sessions.entries())) {
-      if (session.notebookUrl === url) {
+    for (const [sessionId, owned] of Array.from(this.sessions.entries())) {
+      if (owned.ownerId === ownerId && owned.session.notebookUrl === url) {
         try {
-          await session.close();
+          await owned.session.close();
         } catch (error) {
-          log.warning(`  ⚠️  Error closing ${sessionId}: ${error}`);
+          log.warning(`  ⚠️  Error closing ${hashLogValue(sessionId)}: ${error}`);
         } finally {
           this.sessions.delete(sessionId);
           closed++;
@@ -273,15 +293,17 @@ export class SessionManager {
       try {
         await page.waitForSelector(cardSelector, { timeout: 12000 });
       } catch {
-        const title = await page.title().catch(() => "");
-        const bodySnippet = await page
-          .evaluate(() => document.body.innerText.slice(0, 800))
-          .catch(() => "");
-        log.warning(
-          `  🔍 [list_account_notebooks] No cards matched ${cardSelector}. url=${page.url()} title="${title}"`
+        const diagnostics = await page
+          .evaluate(() => ({ title: document.title, body: document.body.innerText.slice(0, 800) }))
+          .catch(() => ({ title: "", body: "" }));
+        log.warning("  UI_CHANGED: NotebookLM home grid could not be detected");
+        log.diagnostic(
+          "list_account_notebooks selector diagnostics",
+          JSON.stringify({ selector: cardSelector, url: page.url(), ...diagnostics })
         );
-        log.warning(`  🔍 [list_account_notebooks] body text (first 800 chars): ${bodySnippet}`);
-        return [];
+        throw new Error(
+          "UI_CHANGED: NotebookLM home grid could not be detected; update selector group notebooks.projectCard"
+        );
       }
 
       return await page.$$eval(cardSelector, (anchors) =>
@@ -317,8 +339,8 @@ export class SessionManager {
   async cleanupInactiveSessions(): Promise<number> {
     const inactiveSessions: string[] = [];
 
-    for (const [sessionId, session] of this.sessions.entries()) {
-      if (session.isExpired(this.sessionTimeout)) {
+    for (const [sessionId, owned] of this.sessions.entries()) {
+      if (owned.session.isExpired(this.sessionTimeout)) {
         inactiveSessions.push(sessionId);
       }
     }
@@ -331,18 +353,18 @@ export class SessionManager {
 
     for (const sessionId of inactiveSessions) {
       try {
-        const session = this.sessions.get(sessionId)!;
+        const session = this.sessions.get(sessionId)!.session;
         const age = (Date.now() - session.createdAt) / 1000;
         const inactive = (Date.now() - session.lastActivity) / 1000;
 
         log.warning(
-          `  🗑️  ${sessionId}: age=${age.toFixed(0)}s, inactive=${inactive.toFixed(0)}s, messages=${session.messageCount}`
+          `  🗑️  ${hashLogValue(sessionId)}: age=${age.toFixed(0)}s, inactive=${inactive.toFixed(0)}s, messages=${session.messageCount}`
         );
 
         await session.close();
         this.sessions.delete(sessionId);
       } catch (error) {
-        log.warning(`  ⚠️  Error cleaning up ${sessionId}: ${error}`);
+        log.warning(`  ⚠️  Error cleaning up ${hashLogValue(sessionId)}: ${error}`);
       }
     }
 
@@ -355,7 +377,7 @@ export class SessionManager {
   /**
    * Clean up the oldest session to make space
    */
-  private async cleanupOldestSession(): Promise<boolean> {
+  private async cleanupOldestSession(ownerId: string): Promise<boolean> {
     if (this.sessions.size === 0) {
       return false;
     }
@@ -364,9 +386,9 @@ export class SessionManager {
     let oldestId: string | null = null;
     let oldestTime = Infinity;
 
-    for (const [sessionId, session] of this.sessions.entries()) {
-      if (session.createdAt < oldestTime) {
-        oldestTime = session.createdAt;
+    for (const [sessionId, owned] of this.sessions.entries()) {
+      if (owned.ownerId === ownerId && owned.session.createdAt < oldestTime) {
+        oldestTime = owned.session.createdAt;
         oldestId = sessionId;
       }
     }
@@ -375,10 +397,10 @@ export class SessionManager {
       return false;
     }
 
-    const oldestSession = this.sessions.get(oldestId)!;
+    const oldestSession = this.sessions.get(oldestId)!.session;
     const age = (Date.now() - oldestSession.createdAt) / 1000;
 
-    log.warning(`🗑️  Removing oldest session ${oldestId} (age: ${age.toFixed(0)}s)`);
+    log.warning(`🗑️  Removing oldest session ${hashLogValue(oldestId)} (age: ${age.toFixed(0)}s)`);
 
     await oldestSession.close();
     this.sessions.delete(oldestId);
@@ -402,11 +424,11 @@ export class SessionManager {
 
     for (const sessionId of Array.from(this.sessions.keys())) {
       try {
-        const session = this.sessions.get(sessionId)!;
+        const session = this.sessions.get(sessionId)!.session;
         await session.close();
         this.sessions.delete(sessionId);
       } catch (error) {
-        log.warning(`  ⚠️  Error closing ${sessionId}: ${error}`);
+        log.warning(`  ⚠️  Error closing ${hashLogValue(sessionId)}: ${error}`);
       }
     }
 
@@ -425,23 +447,46 @@ export class SessionManager {
   }
 
   /**
+   * Put browser state into a safe condition for cleanup without terminating
+   * another client's live session. The caller must close all sessions first.
+   */
+  async prepareForCleanup(): Promise<void> {
+    let release!: () => void;
+    const previous = this.sessionMutationTail;
+    this.sessionMutationTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      if (this.sessions.size > 0) {
+        throw new Error("cleanup_data requires all browser sessions to be closed before deletion");
+      }
+      await this.sharedContextManager.closeContext();
+    } finally {
+      release();
+    }
+  }
+
+  /**
    * Get all sessions info
    */
-  getAllSessionsInfo(): SessionInfo[] {
-    return Array.from(this.sessions.values()).map((session) => session.getInfo());
+  getAllSessionsInfo(ownerId = LOCAL_OWNER_ID): SessionInfo[] {
+    return Array.from(this.sessions.values())
+      .filter((owned) => owned.ownerId === ownerId)
+      .map((owned) => owned.session.getInfo());
   }
 
   /**
    * Get aggregate stats
    */
-  getStats(): {
+  getStats(ownerId = LOCAL_OWNER_ID): {
     active_sessions: number;
     max_sessions: number;
     session_timeout: number;
     oldest_session_seconds: number;
     total_messages: number;
   } {
-    const sessionsInfo = this.getAllSessionsInfo();
+    const sessionsInfo = this.getAllSessionsInfo(ownerId);
 
     const totalMessages = sessionsInfo.reduce((sum, info) => sum + info.message_count, 0);
     const oldestSessionSeconds = Math.max(...sessionsInfo.map((info) => info.age_seconds), 0);

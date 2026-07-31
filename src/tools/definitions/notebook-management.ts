@@ -25,8 +25,8 @@ export const notebookManagementTools: Tool[] = [
       "  4. Ask when it should be consulted → `use_cases`\n" +
       "  5. Propose a `name` and the metadata back to the user\n" +
       "  6. Only after explicit confirmation, call `add_notebook`.\n\n" +
-      "Free-tier limits: 100 notebooks · 50 sources each · 50 queries/day. " +
-      "Google AI Pro/Ultra raises these 5×.",
+      "Notebook and source limits vary by account and plan; rely on limits " +
+      "reported by the current Google interface.",
     inputSchema: {
       type: "object",
       properties: {
@@ -103,8 +103,8 @@ export const notebookManagementTools: Tool[] = [
       "List every notebook that actually exists in the signed-in Google " +
       "account, read live from the NotebookLM home page — not just the " +
       "ones previously registered with `add_notebook`. Slower than " +
-      "`list_notebooks` (it opens each notebook card once to read its real " +
-      "id from the URL) and requires an authenticated session. Use this " +
+      "`list_notebooks` because it loads the live account grid and requires " +
+      "an authenticated session. Use this " +
       "when the user asks to pick from all their notebooks, not just the " +
       "local library.",
     inputSchema: {

@@ -2,6 +2,8 @@
  * Global type definitions for NotebookLM MCP Server
  */
 
+import type { StructuredToolError } from "./errors.js";
+
 /**
  * Session information returned by the API
  */
@@ -37,7 +39,8 @@ export interface AskQuestionResult {
    */
   _provenance?: {
     provider: "google-notebooklm";
-    model: "gemini-2.5";
+    model: "google-managed";
+    model_selection: "managed-by-notebooklm";
     via: "chrome-automation";
     grounding: "user-uploaded-documents";
     ai_generated: true;
@@ -66,6 +69,7 @@ export interface ToolResult<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  error_details?: StructuredToolError;
 }
 
 /**

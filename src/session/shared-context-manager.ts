@@ -46,7 +46,7 @@ export class SharedContextManager {
     this.authManager = authManager;
 
     log.info("🌐 SharedContextManager initialized (PERSISTENT MODE)");
-    log.info(`  Chrome Profile: ${CONFIG.chromeProfileDir}`);
+    log.diagnostic("Chrome profile", CONFIG.chromeProfileDir);
     log.success("  Fingerprint: PERSISTENT across restarts! 🎯");
 
     // Cleanup old isolated profiles at startup (best-effort)
@@ -142,7 +142,8 @@ export class SharedContextManager {
     const statePath = await this.authManager.getValidStatePath();
 
     if (statePath) {
-      log.success(`  📂 Found auth state: ${statePath}`);
+      log.success(`  📂 Found saved authentication state`);
+      log.diagnostic("Authentication state path", statePath);
       log.info("  💡 Will load cookies into persistent profile");
     } else {
       log.warning("  🆕 No saved auth - fresh persistent profile");
@@ -161,8 +162,8 @@ export class SharedContextManager {
     const baseLaunchOptions = {
       headless: shouldBeHeadless,
       viewport: config.viewport,
-      locale: "en-US",
-      timezoneId: "Europe/Berlin",
+      locale: config.browserLocale,
+      timezoneId: config.browserTimezone,
       // ✅ CRITICAL FIX: Pass storageState directly at launch!
       // This is the PROPER way to handle session cookies (Playwright bug workaround)
       // Benefits:
@@ -188,9 +189,9 @@ export class SharedContextManager {
     const preferred = getPreferredChannel();
     const tryLaunch = async (userDataDir: string) => {
       log.info("  🚀 Launching persistent Chrome context...");
-      log.dim(`  📍 Profile location: ${userDataDir}`);
+      log.diagnostic("Browser profile location", userDataDir);
       if (statePath) {
-        log.info(`  📄 Loading auth state: ${statePath}`);
+        log.info(`  📄 Loading saved authentication state`);
       }
       try {
         return await chromium.launchPersistentContext(
@@ -275,7 +276,7 @@ export class SharedContextManager {
 
     log.success("✅ Persistent context ready!");
     log.dim(`  Context ID: ${this.getContextId()}`);
-    log.dim(`  Chrome Profile: ${CONFIG.chromeProfileDir}`);
+    log.diagnostic("Chrome profile", CONFIG.chromeProfileDir);
     log.success("  🎯 Fingerprint: PERSISTENT (same across restarts!)");
   }
 
@@ -299,7 +300,7 @@ export class SharedContextManager {
         this.contextCreatedAt = null;
         this.currentHeadlessMode = null;
         log.success("✅ Persistent context closed");
-        log.success(`  💾 Profile saved: ${this.currentProfileDir || CONFIG.chromeProfileDir}`);
+        log.success(`  💾 Browser profile saved`);
       } catch (error) {
         log.error(`❌ Error closing context: ${error}`);
       }
@@ -402,9 +403,10 @@ export class SharedContextManager {
     for (const p of toDelete) {
       try {
         await this.safeRemoveIsolatedProfile(p);
-        log.dim(`  🗑️  removed ${p}`);
+        log.dim(`  🗑️  removed isolated profile`);
+        log.diagnostic("Removed isolated profile", p);
       } catch (err) {
-        log.warning(`  ⚠️  Failed to remove ${p}: ${err}`);
+        log.warning(`  ⚠️  Failed to remove isolated profile: ${err}`);
       }
     }
   }

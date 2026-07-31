@@ -6,7 +6,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { NotebookLibrary } from "../library/notebook-library.js";
-import { log } from "../utils/logger.js";
+import { hashLogValue, log } from "../utils/logger.js";
 
 /**
  * Handlers for MCP Resource-related requests
@@ -98,7 +98,7 @@ export class ResourceHandlers {
     // Read resource content
     server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       const { uri } = request.params;
-      log.info(`📖 [MCP] read_resource request: ${uri}`);
+      log.info(`📖 [MCP] read_resource request hash: ${hashLogValue(uri)}`);
 
       // Handle library resource
       if (uri === "notebooklm://library") {
