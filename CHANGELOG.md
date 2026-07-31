@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-07-31
+
+### Added
+
+- Added `list_sources`, `get_source`, and `get_source_status` with stable best-effort source IDs,
+  inferred types, indexing states, visible URLs, and explicit `UI_CHANGED`
+  behavior when the source panel cannot be verified.
+- Added public YouTube ingestion and `batch_add_sources` for up to 25 URL,
+  YouTube, or pasted-text sources in one notebook session.
+- Added `import_account_notebook` and preview-first `sync_library`, including
+  rename/source-count updates and non-destructive marking of notebooks that
+  are no longer visible in the signed-in account.
+- Added stable local notebook UUIDs, separate Google notebook IDs, and optional
+  display slugs while retaining compatibility with existing library entries.
+- Added the generic `generate_artifact`, `list_artifacts`,
+  `get_artifact_status`, and `download_artifact` workflow for Audio Overviews,
+  with atomically persisted job IDs and states that survive MCP reconnects.
+- Added structured citation fields for source ID/name/type/URL, page, slide or
+  timestamp location, excerpt, and extraction completeness while preserving
+  the legacy citation fields.
+
+### Changed
+
+- Source creation now compares pre/post inventories and returns the detected
+  source object when NotebookLM exposes enough information.
+- Citation extraction retains every citation marker within one total budget;
+  entries whose excerpts could not be opened are returned as partial instead
+  of being silently omitted.
+- Artifact jobs are shared by the server's configured Google profile rather
+  than an ephemeral MCP transport, matching the documented single-user model.
+
+### Deferred intentionally
+
+- File and Drive pickers, source rename/remove/refresh, deletion of remote
+  Studio artifacts, and Studio types other than `audio_overview` remain hidden
+  until their browser controls and permission boundaries have verified
+  fixtures. The generic contracts introduced here are ready for those types.
+- A Gemini API/File Search backend remains a separate future integration; this
+  release does not mix API answers with NotebookLM browser provenance.
+
 ## [2.2.0] - 2026-07-31
 
 ### Added

@@ -30,7 +30,7 @@
 import type { Page } from "patchright";
 import { UiChangedError } from "../errors.js";
 
-export const NOTEBOOK_UI_SELECTOR_VERSION = "2026.07.2";
+export const NOTEBOOK_UI_SELECTOR_VERSION = "2026.07.3";
 
 export const Selectors = {
   auth: {
@@ -170,6 +170,16 @@ export const Selectors = {
      * class — verified across all observed locales.
      */
     sourceContainer: ".single-source-container",
+    sourceTitle: [
+      ".source-title",
+      ".source-name",
+      "[data-source-title]",
+      "[aria-label] .title",
+      ".single-source-title",
+    ],
+    sourceStatus: ["[role='progressbar']", ".source-status", ".error-message", "[role='alert']"],
+    sourceLink: ["a[href]", "[data-source-url]"],
+    sourceTypeIcon: ["mat-icon", ".material-symbols-outlined", ".material-icons"],
     /**
      * "X Quellen" / "X sources" header text. Numeric so we read the count
      * via regex on the visible text. Independent of sidebar collapse state.
@@ -220,7 +230,6 @@ export const Selectors = {
      */
     sourceTypeUrl: [
       // Icon-anchored (language-free) — primary path.
-      "button.drop-zone-icon-button:has(mat-icon.youtube-icon)",
       'button.drop-zone-icon-button:has(mat-icon:text-is("link"))',
       // Visible-text fallbacks for the eight major locales.
       'button.drop-zone-icon-button:has-text("Websites")',
@@ -250,7 +259,7 @@ export const Selectors = {
       '[data-type="text"]',
     ],
     sourceTypeYoutube: [
-      "button.drop-zone-icon-button mat-icon.youtube-icon",
+      "button.drop-zone-icon-button:has(mat-icon.youtube-icon)",
       'button.drop-zone-icon-button:has(mat-icon:text-is("video_youtube"))',
     ],
     sourceTypeFile: [

@@ -118,6 +118,51 @@ export const notebookManagementTools: Tool[] = [
     },
   },
   {
+    name: "import_account_notebook",
+    description:
+      "Import one notebook from the signed-in Google account into the local library using its real Google notebook id. The local entry receives a stable UUID; the Google id is stored separately. Optional metadata can be supplied now or filled with `update_notebook` later.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        google_notebook_id: {
+          type: "string",
+          description: "Real id returned by `list_account_notebooks`.",
+        },
+        description: { type: "string" },
+        topics: { type: "array", items: { type: "string" } },
+        content_types: { type: "array", items: { type: "string" } },
+        use_cases: { type: "array", items: { type: "string" } },
+        tags: { type: "array", items: { type: "string" } },
+      },
+      required: ["google_notebook_id"],
+    },
+    annotations: {
+      title: "Import account notebook",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "sync_library",
+    description:
+      "Compare the local library with the live signed-in Google account. Default preview mode (`apply=false`) reports additions, metadata changes, and notebooks no longer visible without writing. Set `apply=true` only after reviewing the preview; missing notebooks are marked, never deleted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        apply: { type: "boolean", description: "Apply the preview. Default false." },
+      },
+    },
+    annotations: {
+      title: "Synchronize notebook library",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
     name: "get_notebook",
     description:
       "Fetch full metadata for one notebook by id. Use to verify what's " +

@@ -8,6 +8,7 @@
 
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "node:crypto";
 import { CONFIG } from "../config.js";
 import { hashLogValue, log } from "../utils/logger.js";
 import type {
@@ -16,12 +17,16 @@ import type {
   AddNotebookInput,
   UpdateNotebookInput,
   LibraryStats,
+  AccountNotebookRecord,
+  LibrarySyncResult,
 } from "./types.js";
 import { normalizeNotebookUrl } from "../notebooklm/url.js";
 import { z } from "zod";
 
 const notebookEntrySchema = z.object({
   id: z.string().min(1),
+  slug: z.string().optional(),
+  google_notebook_id: z.string().optional(),
   url: z.string().min(1),
   name: z.string().min(1),
   description: z.string().default(""),
@@ -32,6 +37,9 @@ const notebookEntrySchema = z.object({
   last_used: z.string(),
   use_count: z.number().int().nonnegative().default(0),
   tags: z.array(z.string()).optional(),
+  source_count: z.number().int().nonnegative().nullable().optional(),
+  sync_status: z.enum(["available", "missing", "unknown"]).optional(),
+  last_synced_at: z.string().optional(),
 });
 
 const librarySchema = z.object({
@@ -45,8 +53,8 @@ export class NotebookLibrary {
   private libraryPath: string;
   private library: Library;
 
-  constructor() {
-    this.libraryPath = path.join(CONFIG.dataDir, "library.json");
+  constructor(libraryPath = path.join(CONFIG.dataDir, "library.json")) {
+    this.libraryPath = libraryPath;
     this.library = this.loadLibrary();
 
     log.info("📚 NotebookLibrary initialized");
@@ -99,10 +107,13 @@ export class NotebookLibrary {
 
     if (hasConfig) {
       // Create first entry from CONFIG
-      const id = this.generateId(CONFIG.notebookDescription);
+      const id = randomUUID();
+      const normalizedUrl = normalizeNotebookUrl(CONFIG.notebookUrl);
       notebooks.push({
         id,
-        url: CONFIG.notebookUrl,
+        slug: this.generateSlug(CONFIG.notebookDescription),
+        google_notebook_id: this.extractGoogleNotebookId(normalizedUrl),
+        url: normalizedUrl,
         name: CONFIG.notebookDescription.substring(0, 50), // First 50 chars as name
         description: CONFIG.notebookDescription,
         topics: CONFIG.notebookTopics,
@@ -112,6 +123,7 @@ export class NotebookLibrary {
         last_used: new Date().toISOString(),
         use_count: 0,
         tags: [],
+        sync_status: "unknown",
       });
 
       log.success(`  ✅ Created default notebook: ${hashLogValue(id)}`);
@@ -121,7 +133,7 @@ export class NotebookLibrary {
       notebooks,
       active_notebook_id: notebooks.length > 0 ? notebooks[0].id : null,
       last_modified: new Date().toISOString(),
-      version: "1.0.0",
+      version: "2.0.0",
     };
   }
 
@@ -149,18 +161,18 @@ export class NotebookLibrary {
   /**
    * Generate a unique ID from a string (slug format)
    */
-  private generateId(name: string): string {
+  private generateSlug(name: string): string {
     const base = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .substring(0, 30);
 
-    // Ensure uniqueness
-    let id = base;
+    const safeBase = base || "notebook";
+    let id = safeBase;
     let counter = 1;
-    while (this.library.notebooks.some((n) => n.id === id)) {
-      id = `${base}-${counter}`;
+    while (this.library.notebooks.some((n) => n.slug === id)) {
+      id = `${safeBase}-${counter}`;
       counter++;
     }
 
@@ -173,13 +185,23 @@ export class NotebookLibrary {
   addNotebook(input: AddNotebookInput): NotebookEntry {
     log.info(`📝 Adding notebook (${input.name.length} name characters)`);
     const normalizedUrl = normalizeNotebookUrl(input.url);
+    const googleNotebookId = this.extractGoogleNotebookId(normalizedUrl);
+    const existing = this.library.notebooks.find(
+      (notebook) =>
+        notebook.url === normalizedUrl ||
+        (googleNotebookId && notebook.google_notebook_id === googleNotebookId)
+    );
+    if (existing) {
+      throw new Error(`Notebook is already registered: ${existing.id}`);
+    }
 
-    // Generate ID
-    const id = this.generateId(input.name);
+    const id = randomUUID();
 
     // Create entry
     const notebook: NotebookEntry = {
       id,
+      slug: this.generateSlug(input.name),
+      google_notebook_id: googleNotebookId,
       url: normalizedUrl,
       name: input.name,
       description: input.description,
@@ -193,6 +215,7 @@ export class NotebookLibrary {
       last_used: new Date().toISOString(),
       use_count: 0,
       tags: input.tags || [],
+      sync_status: "unknown",
     };
 
     // Add to library
@@ -227,7 +250,16 @@ export class NotebookLibrary {
    * Get a specific notebook by ID
    */
   getNotebook(id: string): NotebookEntry | null {
-    return this.library.notebooks.find((n) => n.id === id) || null;
+    const notebook = this.library.notebooks.find((n) => n.id === id);
+    return notebook
+      ? {
+          ...notebook,
+          topics: [...notebook.topics],
+          content_types: [...notebook.content_types],
+          use_cases: [...notebook.use_cases],
+          ...(notebook.tags && { tags: [...notebook.tags] }),
+        }
+      : null;
   }
 
   /**
@@ -371,12 +403,162 @@ export class NotebookLibrary {
    */
   searchNotebooks(query: string): NotebookEntry[] {
     const lowerQuery = query.toLowerCase();
-    return this.library.notebooks.filter(
+    return this.listNotebooks().filter(
       (n) =>
         n.name.toLowerCase().includes(lowerQuery) ||
         n.description.toLowerCase().includes(lowerQuery) ||
         n.topics.some((t) => t.toLowerCase().includes(lowerQuery)) ||
         n.tags?.some((t) => t.toLowerCase().includes(lowerQuery))
     );
+  }
+
+  importAccountNotebook(
+    accountNotebook: AccountNotebookRecord,
+    metadata: Partial<
+      Pick<AddNotebookInput, "description" | "topics" | "content_types" | "use_cases" | "tags">
+    > = {}
+  ): NotebookEntry {
+    const normalizedUrl = normalizeNotebookUrl(accountNotebook.url);
+    const existing = this.library.notebooks.find(
+      (notebook) =>
+        notebook.google_notebook_id === accountNotebook.id || notebook.url === normalizedUrl
+    );
+    if (existing) return this.getNotebook(existing.id)!;
+
+    const now = new Date().toISOString();
+    const notebook: NotebookEntry = {
+      id: randomUUID(),
+      slug: this.generateSlug(accountNotebook.name),
+      google_notebook_id: accountNotebook.id,
+      url: normalizedUrl,
+      name: accountNotebook.name,
+      description: metadata.description ?? "",
+      topics: metadata.topics ?? [],
+      content_types: metadata.content_types ?? [],
+      use_cases: metadata.use_cases ?? [],
+      tags: metadata.tags ?? [],
+      added_at: now,
+      last_used: now,
+      use_count: 0,
+      source_count: accountNotebook.sourceCount,
+      sync_status: "available",
+      last_synced_at: now,
+    };
+    const updated = { ...this.library, notebooks: [...this.library.notebooks, notebook] };
+    if (!updated.active_notebook_id) updated.active_notebook_id = notebook.id;
+    updated.version = "2.0.0";
+    this.saveLibrary(updated);
+    return this.getNotebook(notebook.id)!;
+  }
+
+  syncAccountNotebooks(
+    accountNotebooks: AccountNotebookRecord[],
+    apply = false
+  ): LibrarySyncResult {
+    const now = new Date().toISOString();
+    const accountById = new Map(accountNotebooks.map((notebook) => [notebook.id, notebook]));
+    const existingByGoogleId = new Map(
+      this.library.notebooks
+        .filter((notebook) => notebook.google_notebook_id)
+        .map((notebook) => [notebook.google_notebook_id!, notebook])
+    );
+    const added: NotebookEntry[] = [];
+    const updatedEntries: NotebookEntry[] = [];
+    const missing: NotebookEntry[] = [];
+    let unchanged = 0;
+
+    for (const accountNotebook of accountNotebooks) {
+      const normalizedUrl = normalizeNotebookUrl(accountNotebook.url);
+      const local =
+        existingByGoogleId.get(accountNotebook.id) ??
+        this.library.notebooks.find((notebook) => notebook.url === normalizedUrl);
+      if (!local) {
+        added.push(this.createSyncedEntry(accountNotebook, normalizedUrl, now));
+        continue;
+      }
+      const changed =
+        local.name !== accountNotebook.name ||
+        local.url !== normalizedUrl ||
+        local.google_notebook_id !== accountNotebook.id ||
+        local.source_count !== accountNotebook.sourceCount ||
+        local.sync_status !== "available";
+      if (changed) {
+        updatedEntries.push({
+          ...local,
+          name: accountNotebook.name,
+          url: normalizedUrl,
+          google_notebook_id: accountNotebook.id,
+          source_count: accountNotebook.sourceCount,
+          sync_status: "available",
+          last_synced_at: now,
+        });
+      } else {
+        unchanged++;
+      }
+    }
+
+    for (const local of this.library.notebooks) {
+      const googleId = local.google_notebook_id ?? this.extractGoogleNotebookId(local.url);
+      if (googleId && !accountById.has(googleId)) {
+        missing.push({
+          ...local,
+          google_notebook_id: googleId,
+          sync_status: "missing",
+          last_synced_at: now,
+        });
+      }
+    }
+
+    if (apply) {
+      const replacements = new Map(
+        [...updatedEntries, ...missing].map((notebook) => [notebook.id, notebook])
+      );
+      const notebooks = this.library.notebooks.map(
+        (notebook) => replacements.get(notebook.id) ?? notebook
+      );
+      notebooks.push(...added);
+      const next = { ...this.library, notebooks, version: "2.0.0" };
+      if (!next.active_notebook_id && notebooks.length > 0) {
+        next.active_notebook_id = notebooks[0].id;
+      }
+      this.saveLibrary(next);
+    }
+
+    return {
+      applied: apply,
+      added: added.map((entry) => ({ ...entry })),
+      updated: updatedEntries.map((entry) => ({ ...entry })),
+      missing: missing.map((entry) => ({ ...entry })),
+      unchanged,
+    };
+  }
+
+  private createSyncedEntry(
+    accountNotebook: AccountNotebookRecord,
+    normalizedUrl: string,
+    now: string
+  ): NotebookEntry {
+    return {
+      id: randomUUID(),
+      slug: this.generateSlug(accountNotebook.name),
+      google_notebook_id: accountNotebook.id,
+      url: normalizedUrl,
+      name: accountNotebook.name,
+      description: "",
+      topics: [],
+      content_types: [],
+      use_cases: [],
+      tags: [],
+      added_at: now,
+      last_used: now,
+      use_count: 0,
+      source_count: accountNotebook.sourceCount,
+      sync_status: "available",
+      last_synced_at: now,
+    };
+  }
+
+  private extractGoogleNotebookId(url: string): string | undefined {
+    return url.match(/\/notebook\/([^/?#]+)/)?.[1];
   }
 }

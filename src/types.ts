@@ -54,6 +54,13 @@ export interface AskQuestionResult {
     number: number;
     sourceName: string;
     sourceText: string;
+    source_id: string | null;
+    source_name: string;
+    source_type: "web" | "youtube" | "pdf" | "audio" | "video" | "document" | "unknown";
+    source_url: string | null;
+    location: { page?: number; slide?: number; timestamp_seconds?: number } | null;
+    excerpt: string | null;
+    extraction_status: "complete" | "partial" | "unavailable";
   }>;
   /**
    * Effective `source_format` used to render `answer`. Mirrors what the caller

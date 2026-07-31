@@ -28,12 +28,24 @@
  */
 
 import type { Page } from "patchright";
+import { createHash } from "node:crypto";
 import { Selectors, joinAlt } from "./selectors.js";
 import { UiChangedError } from "../errors.js";
 import { safeSleep, isRecoverable } from "../browser/watchdog.js";
 import { hashLogValue, log } from "../utils/logger.js";
 
-export type SourceType = "url" | "text";
+export type SourceType = "url" | "text" | "youtube";
+
+export type SourceIndexStatus = "ready" | "indexing" | "error" | "unknown";
+
+export interface SourceSummary {
+  source_id: string;
+  name: string;
+  type: "web" | "youtube" | "pdf" | "audio" | "image" | "text" | "unknown";
+  status: SourceIndexStatus;
+  url: string | null;
+  position: number;
+}
 
 export interface AddSourceInput {
   type: SourceType;
@@ -49,6 +61,7 @@ export interface AddSourceResult {
   sourceCountBefore: number;
   sourceCountAfter: number;
   message?: string;
+  source?: SourceSummary;
 }
 
 export async function addSource(page: Page, input: AddSourceInput): Promise<AddSourceResult> {
@@ -59,6 +72,7 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
   );
 
   try {
+    const inventoryBefore = await listSources(page).catch(() => [] as SourceSummary[]);
     // 1. Open the Add-source dialog (or use one that's already open).
     await openAddSourceOverlay(page);
 
@@ -108,12 +122,18 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
     const after = await waitForSourceCountIncrease(page, before, 90_000);
 
     if (after > before) {
+      const inventoryAfter = await listSources(page).catch(() => [] as SourceSummary[]);
+      const knownIds = new Set(inventoryBefore.map((source) => source.source_id));
+      const addedSource =
+        inventoryAfter.find((source) => !knownIds.has(source.source_id)) ??
+        inventoryAfter.find((source) => input.title && source.name === input.title);
       log.success(`  ✅ source added (count ${before} → ${after})`);
       return {
         success: true,
         type: input.type,
         sourceCountBefore: before,
         sourceCountAfter: after,
+        ...(addedSource && { source: addedSource }),
       };
     }
 
@@ -232,7 +252,11 @@ async function isOverlayVisible(page: Page): Promise<boolean> {
 
 async function pickSourceType(page: Page, type: SourceType): Promise<void> {
   const candidates =
-    type === "url" ? Selectors.sources.sourceTypeUrl : Selectors.sources.sourceTypeText;
+    type === "url"
+      ? Selectors.sources.sourceTypeUrl
+      : type === "youtube"
+        ? Selectors.sources.sourceTypeYoutube
+        : Selectors.sources.sourceTypeText;
   const overlay = page.locator(Selectors.sources.overlayPane).first();
   for (const sel of candidates) {
     const target = overlay.locator(sel).first();
@@ -244,6 +268,134 @@ async function pickSourceType(page: Page, type: SourceType): Promise<void> {
     }
   }
   // Older overlays drop straight to the input (no type picker) — that's fine.
+}
+
+export async function listSources(page: Page): Promise<SourceSummary[]> {
+  const rows = (await page.$$eval(
+    Selectors.sources.sourceContainer,
+    (containers, selectors) =>
+      containers.map((container, position) => {
+        const findText = (candidates: readonly string[]) => {
+          for (const selector of candidates) {
+            const text = container.querySelector(selector)?.textContent?.trim();
+            if (text) return text;
+          }
+          return "";
+        };
+        const rawText = (container.textContent || "").trim();
+        const statusText = findText(selectors.status).toLowerCase();
+        const iconText = findText(selectors.icons).toLowerCase();
+        const link = selectors.links
+          .map((selector) => container.querySelector(selector))
+          .find(Boolean);
+        return {
+          rawId:
+            container.getAttribute("data-source-id") ||
+            container.getAttribute("data-id") ||
+            container.id ||
+            "",
+          name:
+            findText(selectors.titles) ||
+            container.getAttribute("data-source-title") ||
+            rawText.split("\n")[0]?.trim() ||
+            `Source ${position + 1}`,
+          rawText,
+          statusText,
+          iconText,
+          url: link?.getAttribute("href") || link?.getAttribute("data-source-url") || null,
+          busy:
+            container.getAttribute("aria-busy") === "true" ||
+            Boolean(container.querySelector("[role='progressbar']")),
+          position,
+        };
+      }),
+    {
+      titles: Selectors.sources.sourceTitle,
+      status: Selectors.sources.sourceStatus,
+      links: Selectors.sources.sourceLink,
+      icons: Selectors.sources.sourceTypeIcon,
+    }
+  )) as Array<{
+    rawId: string;
+    name: string;
+    rawText: string;
+    statusText: string;
+    iconText: string;
+    url: string | null;
+    busy: boolean;
+    position: number;
+  }>;
+
+  if (rows.length === 0) {
+    const panelDetected =
+      (await page
+        .locator(joinAlt(Selectors.sources.addButton))
+        .first()
+        .isVisible({ timeout: 500 })
+        .catch(() => false)) ||
+      (await page
+        .locator(Selectors.sources.sourceCountIndicator)
+        .first()
+        .isVisible({ timeout: 500 })
+        .catch(() => false));
+    if (!panelDetected) throw new UiChangedError("sources.sourceContainer");
+  }
+
+  const occurrences = new Map<string, number>();
+  return rows.map((row) => {
+    const signature = `${row.name}\0${row.url ?? ""}`;
+    const occurrence = occurrences.get(signature) ?? 0;
+    occurrences.set(signature, occurrence + 1);
+    return {
+      source_id:
+        row.rawId ||
+        `src_${createHash("sha256")
+          .update(`${signature}\0${occurrence}`)
+          .digest("hex")
+          .slice(0, 16)}`,
+      name: row.name,
+      type: inferSourceType(row.name, row.url, row.iconText),
+      status: inferSourceStatus(row.rawText, row.statusText, row.busy),
+      url: row.url,
+      position: row.position,
+    };
+  });
+}
+
+export async function getSource(
+  page: Page,
+  selector: { sourceId?: string; name?: string }
+): Promise<SourceSummary | null> {
+  const sources = await listSources(page);
+  return (
+    sources.find((source) => selector.sourceId && source.source_id === selector.sourceId) ??
+    sources.find((source) => selector.name && source.name === selector.name) ??
+    null
+  );
+}
+
+function inferSourceStatus(text: string, statusText: string, busy: boolean): SourceIndexStatus {
+  const value = `${text} ${statusText}`.toLowerCase();
+  if (/error|failed|fehler|falló|erro|échec|失敗/.test(value)) return "error";
+  if (busy || /index|processing|uploading|wird|procesando|traitement|処理中/.test(value)) {
+    return "indexing";
+  }
+  return value ? "ready" : "unknown";
+}
+
+function inferSourceType(
+  name: string,
+  url: string | null,
+  iconText: string
+): SourceSummary["type"] {
+  const value = `${name} ${url ?? ""} ${iconText}`.toLowerCase();
+  if (/youtube|youtu\.be|video_youtube/.test(value)) return "youtube";
+  if (/\.pdf(?:$|[?#])|picture_as_pdf/.test(value)) return "pdf";
+  if (/\.(?:mp3|m4a|wav|ogg)(?:$|[?#])|audio/.test(value)) return "audio";
+  if (/\.(?:png|jpe?g|gif|webp)(?:$|[?#])|image/.test(value)) return "image";
+  if (/^https?:|\blink\b|language/.test(value)) return "web";
+  if (/text|content_paste|document/.test(value)) return "text";
+  return "unknown";
 }
 
 async function fillSourceContent(page: Page, input: AddSourceInput): Promise<void> {

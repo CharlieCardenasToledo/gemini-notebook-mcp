@@ -12,8 +12,9 @@ import type {
   LibraryStats,
   NotebookEntry,
   UpdateNotebookInput,
+  LibrarySyncResult,
 } from "../library/types.js";
-import type { AddSourceResult } from "../notebooklm/sources.js";
+import type { AddSourceInput, AddSourceResult, SourceSummary } from "../notebooklm/sources.js";
 import type { AudioGenerationResult, DownloadAudioResult } from "../notebooklm/audio.js";
 import { resolveOutputDirectory } from "../notebooklm/audio.js";
 import { CONFIG, applyBrowserOptions, withRuntimeConfig, type BrowserOptions } from "../config.js";
@@ -22,6 +23,11 @@ import type { AskQuestionResult, ToolResult, ProgressCallback } from "../types.j
 import { RateLimitError } from "../errors.js";
 import { CleanupManager } from "../utils/cleanup-manager.js";
 import { applyAiMarker, PROVENANCE } from "../utils/disclaimer.js";
+import {
+  ArtifactStore,
+  type ArtifactJob,
+  type ArtifactType,
+} from "../notebooklm/artifact-store.js";
 
 /**
  * Follow-up reminder appended to ask_question answers when explicitly enabled.
@@ -31,6 +37,10 @@ import { applyAiMarker, PROVENANCE } from "../utils/disclaimer.js";
  */
 const FOLLOW_UP_REMINDER =
   "\n\nIs that all you need to know? You can always ask another question using the same session ID. Before you reply to the user, review their original request and this answer; if anything is still unclear or missing, ask another question first.";
+
+// Artifact jobs belong to the one Google profile configured for this server,
+// not to an ephemeral MCP transport session, so they survive reconnects.
+const ARTIFACT_OWNER_ID = "configured-google-profile";
 
 function followUpReminderEnabled(): boolean {
   const raw = process.env.NOTEBOOKLM_FOLLOW_UP_REMINDER;
@@ -48,18 +58,21 @@ export class ToolHandlers {
   private library: NotebookLibrary;
   private cleanupManager: CleanupManager;
   private ownerId: string;
+  private artifactStore: ArtifactStore;
 
   constructor(
     sessionManager: SessionManager,
     authManager: AuthManager,
     library: NotebookLibrary,
-    ownerId = "local-stdio-client"
+    ownerId = "local-stdio-client",
+    artifactStore = new ArtifactStore()
   ) {
     this.sessionManager = sessionManager;
     this.authManager = authManager;
     this.library = library;
     this.cleanupManager = new CleanupManager();
     this.ownerId = ownerId;
+    this.artifactStore = artifactStore;
   }
 
   /**
@@ -687,6 +700,57 @@ export class ToolHandlers {
     }
   }
 
+  async handleImportAccountNotebook(
+    args: {
+      google_notebook_id: string;
+      description?: string;
+      topics?: string[];
+      content_types?: string[];
+      use_cases?: string[];
+      tags?: string[];
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ notebook: NotebookEntry }>> {
+    log.info(`🔧 [TOOL] import_account_notebook called`);
+    try {
+      const accountNotebooks = await this.sessionManager.listAccountNotebooks(signal);
+      const accountNotebook = accountNotebooks.find(
+        (notebook) => notebook.id === args.google_notebook_id
+      );
+      if (!accountNotebook) {
+        return { success: false, error: "Notebook was not found in the signed-in Google account" };
+      }
+      const notebook = this.library.importAccountNotebook(accountNotebook, {
+        description: args.description,
+        topics: args.topics,
+        content_types: args.content_types,
+        use_cases: args.use_cases,
+        tags: args.tags,
+      });
+      return { success: true, data: { notebook } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] import_account_notebook failed: ${message}`);
+      return { success: false, error: message };
+    }
+  }
+
+  async handleSyncLibrary(
+    args: { apply?: boolean },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ sync: LibrarySyncResult }>> {
+    log.info(`🔧 [TOOL] sync_library called (apply=${args.apply === true})`);
+    try {
+      const accountNotebooks = await this.sessionManager.listAccountNotebooks(signal);
+      const sync = this.library.syncAccountNotebooks(accountNotebooks, args.apply === true);
+      return { success: true, data: { sync } };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log.error(`❌ [TOOL] sync_library failed: ${message}`);
+      return { success: false, error: message };
+    }
+  }
+
   /**
    * Handle get_notebook tool
    */
@@ -1000,7 +1064,7 @@ export class ToolHandlers {
    */
   async handleAddSource(
     args: {
-      type: "url" | "text";
+      type: "url" | "text" | "youtube";
       content: string;
       title?: string;
       session_id?: string;
@@ -1037,6 +1101,250 @@ export class ToolHandlers {
         return { success: false, error: msg };
       }
     });
+  }
+
+  async handleListSources(
+    args: {
+      session_id?: string;
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ sources: SourceSummary[]; count: number }>> {
+    log.info(`🔧 [TOOL] list_sources called`);
+    const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
+    const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
+        const session = await this.sessionManager.getOrCreateSession(
+          args.session_id,
+          url,
+          overrideHeadless,
+          this.ownerId
+        );
+        const sources = await session.listSources(signal);
+        return { success: true, data: { sources, count: sources.length } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: message };
+      }
+    });
+  }
+
+  async handleGetSource(
+    args: {
+      source_id?: string;
+      name?: string;
+      session_id?: string;
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ source: SourceSummary }>> {
+    log.info(`🔧 [TOOL] get_source called`);
+    const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
+    const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
+        const session = await this.sessionManager.getOrCreateSession(
+          args.session_id,
+          url,
+          overrideHeadless,
+          this.ownerId
+        );
+        const source = await session.getSource(
+          { sourceId: args.source_id, name: args.name },
+          signal
+        );
+        if (!source) return { success: false, error: "Source not found" };
+        return { success: true, data: { source } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: message };
+      }
+    });
+  }
+
+  async handleBatchAddSources(
+    args: {
+      sources: AddSourceInput[];
+      stop_on_error?: boolean;
+      session_id?: string;
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ results: AddSourceResult[]; added: number; failed: number }>> {
+    log.info(`🔧 [TOOL] batch_add_sources called (${args.sources.length} sources)`);
+    const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
+    const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
+        const session = await this.sessionManager.getOrCreateSession(
+          args.session_id,
+          url,
+          overrideHeadless,
+          this.ownerId
+        );
+        const results: AddSourceResult[] = [];
+        for (const source of args.sources) {
+          const result = await session.addSource(source, signal);
+          results.push(result);
+          if (!result.success && args.stop_on_error !== false) break;
+        }
+        const added = results.filter((result) => result.success).length;
+        return {
+          success: added === results.length,
+          data: { results, added, failed: results.length - added },
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: message };
+      }
+    });
+  }
+
+  async handleGenerateArtifact(
+    args: {
+      type: ArtifactType;
+      custom_prompt?: string;
+      wait_for_completion?: boolean;
+      timeout_ms?: number;
+      session_id?: string;
+      notebook_id?: string;
+      notebook_url?: string;
+      show_browser?: boolean;
+    },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ job: ArtifactJob }>> {
+    const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
+    const overrideHeadless = args.show_browser === undefined ? undefined : args.show_browser;
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      const url = await this.resolveNotebookUrl(args.notebook_id, args.notebook_url);
+      if (!url) throw new Error("No notebook selected. Provide notebook_id or notebook_url.");
+      const job = this.artifactStore.create(ARTIFACT_OWNER_ID, url, args.type);
+      try {
+        const session = await this.sessionManager.getOrCreateSession(
+          args.session_id,
+          url,
+          overrideHeadless,
+          this.ownerId
+        );
+        const result = await session.generateAudio(
+          {
+            customPrompt: args.custom_prompt,
+            waitForCompletion: args.wait_for_completion,
+            timeoutMs: args.timeout_ms,
+          },
+          signal
+        );
+        const status =
+          result.status === "ready"
+            ? "ready"
+            : result.status === "error"
+              ? "error"
+              : result.status === "started"
+                ? "started"
+                : "in_progress";
+        const updated = this.artifactStore.update(job.job_id, ARTIFACT_OWNER_ID, {
+          status,
+          artifact_id: status === "ready" ? `audio-overview:${this.notebookKey(url)}` : null,
+          message: result.message,
+        })!;
+        return { success: status !== "error", data: { job: updated } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.artifactStore.update(job.job_id, ARTIFACT_OWNER_ID, { status: "error", message });
+        return { success: false, error: message };
+      }
+    });
+  }
+
+  async handleListArtifacts(args: {
+    notebook_id?: string;
+    notebook_url?: string;
+  }): Promise<ToolResult<{ artifacts: ArtifactJob[] }>> {
+    try {
+      const hasTarget = Boolean(args.notebook_id || args.notebook_url);
+      const url = hasTarget
+        ? await this.resolveNotebookUrl(args.notebook_id, args.notebook_url)
+        : undefined;
+      return {
+        success: true,
+        data: { artifacts: this.artifactStore.list(ARTIFACT_OWNER_ID, url) },
+      };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  async handleGetArtifactStatus(
+    args: { job_id: string; show_browser?: boolean },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ job: ArtifactJob }>> {
+    const job = this.artifactStore.get(args.job_id, ARTIFACT_OWNER_ID);
+    if (!job) return { success: false, error: "Artifact job not found" };
+    const effectiveConfig = applyBrowserOptions(undefined, args.show_browser);
+    return await withRuntimeConfig(effectiveConfig, async () => {
+      try {
+        const session = await this.sessionManager.getOrCreateSession(
+          undefined,
+          job.notebook_url,
+          args.show_browser,
+          this.ownerId
+        );
+        const result = await session.getAudioStatus(signal);
+        const status = result.status === "not_started" ? "error" : result.status;
+        const updated = this.artifactStore.update(job.job_id, ARTIFACT_OWNER_ID, {
+          status,
+          artifact_id:
+            status === "ready"
+              ? (job.artifact_id ?? `audio-overview:${this.notebookKey(job.notebook_url)}`)
+              : job.artifact_id,
+          message: result.message,
+        })!;
+        return { success: status !== "error", data: { job: updated } };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { success: false, error: message };
+      }
+    });
+  }
+
+  async handleDownloadArtifact(
+    args: { job_id: string; destination_dir: string; show_browser?: boolean },
+    signal?: AbortSignal
+  ): Promise<ToolResult<{ job: ArtifactJob; result: DownloadAudioResult }>> {
+    const job = this.artifactStore.get(args.job_id, ARTIFACT_OWNER_ID);
+    if (!job) return { success: false, error: "Artifact job not found" };
+    try {
+      resolveOutputDirectory(args.destination_dir);
+      const session = await this.sessionManager.getOrCreateSession(
+        undefined,
+        job.notebook_url,
+        args.show_browser,
+        this.ownerId
+      );
+      const result = await session.downloadAudio(args.destination_dir, signal);
+      const updated = this.artifactStore.update(job.job_id, ARTIFACT_OWNER_ID, {
+        ...(result.success && { status: "ready" as const }),
+        ...(result.filePath && { file_path: result.filePath }),
+        message: result.message,
+      })!;
+      return { success: result.success, data: { job: updated, result } };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  private notebookKey(url: string): string {
+    return url.match(/\/notebook\/([^/?#]+)/)?.[1] ?? hashLogValue(url);
   }
 
   /**

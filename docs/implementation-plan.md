@@ -33,7 +33,7 @@ Acceptance criteria:
 
 ## 2.2.0 — Browser robustness and MCP protocol
 
-Status: implemented on `agent/browser-robustness-2.2.0`.
+Status: merged into `main` through PR #11.
 
 The stable SDK available during implementation remained on 1.x, so the SDK
 major-version migration is intentionally deferred; the selector, cancellation,
@@ -73,6 +73,25 @@ Exit criteria:
 - The packed CLI completes an MCP initialize/list-tools smoke test on every supported platform.
 
 ## 2.3.0 — NotebookLM features
+
+Status: implemented for the 2.3.0 release.
+
+Delivered in this release:
+
+- Live `list_sources`/`get_source`, YouTube ingestion, batch ingestion, stable
+  best-effort source IDs, and observable indexing states.
+- Preview-first account/library synchronization plus one-notebook import,
+  separate stable local UUIDs, Google IDs, and optional slugs.
+- Persistent generic Studio jobs for `audio_overview`, including generation,
+  listing, live status refresh, and download.
+- Enriched citation IDs/types/URLs/locations/excerpts/status with legacy-field
+  compatibility and one total extraction budget.
+
+Deferred until verified UI fixtures and permission boundaries exist:
+
+- Source rename/remove/refresh and file/Drive pickers.
+- Remote artifact deletion and Studio artifact types other than Audio Overview.
+- The separately configured Gemini API/File Search backend.
 
 This phase adds functionality without conflating NotebookLM browser automation with the Gemini API.
 
