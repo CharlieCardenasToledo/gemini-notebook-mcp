@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-07-31
+
+### Added
+
+- Added a safe, read-only live smoke suite for authenticated NotebookLM account,
+  source, Audio Overview, library-sync preview, and local artifact checks.
+- Added a browser-independent live preflight to the Windows, macOS, and Linux CI
+  matrix.
+- Added anonymized coverage for the valid empty-account state on the NotebookLM home
+  grid.
+
+### Changed
+
+- `mcp:test-live` is now non-mutating; the legacy chat test moved to
+  `mcp:test-live:chat` and requires explicit mutation acknowledgement.
+- Live diagnostics emit aggregate states only and redact URLs, paths, email addresses,
+  and identifiers.
+- Account notebook discovery now returns an empty list only after verifying the empty
+  state; an unrecognized grid continues to return `UI_CHANGED`.
+
 ## [2.3.0] - 2026-07-31
 
 ### Added

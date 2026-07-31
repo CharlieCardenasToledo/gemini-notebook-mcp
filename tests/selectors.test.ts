@@ -58,6 +58,9 @@ test("versioned selector registry matches anonymized multilingual fixtures", asy
 
   const home = await fixture("notebook-home-ja.html");
   assert.equal(matchesAny(home, "notebooks.projectCard"), true);
+
+  const emptyHome = await fixture("notebook-home-empty-en.html");
+  assert.equal(matchesAny(emptyHome, "notebooks.emptyState"), true);
 });
 
 test("selector verification failures produce a structured UI_CHANGED error", () => {

@@ -423,6 +423,26 @@ npm test           # unit and transport tests
 npm run check      # format:check + lint + build + tests
 ```
 
+The live-test commands are deliberately split by risk:
+
+```bash
+npm run test:live:preflight # temporary data dir; no browser or Google account
+npm run test:live:readonly  # authenticated, read-only NotebookLM browser checks
+```
+
+The authenticated runner never asks a question or changes the account. It checks the
+account grid, sources, source status, Audio Overview status, a library-sync preview,
+and locally persisted artifact jobs. Set `NOTEBOOKLM_LIVE_NOTEBOOK_ID` to target a
+specific Google notebook ID; otherwise the first visible or active notebook is used.
+It prints counts and states only—never notebook names, URLs, source content, or DOM.
+Exit codes are `0` for pass, `2` when authentication/profile/notebook prerequisites
+are unavailable, and `1` for a product or selector failure.
+
+Legacy interactive diagnostics require `NOTEBOOKLM_LIVE_DIAGNOSTICS=true`. Any probe
+that sends chat messages additionally requires
+`NOTEBOOKLM_LIVE_ALLOW_MUTATION=true`; `npm run mcp:test-live:chat` has the same
+mutation guard.
+
 For a local HTTP smoke test, start the server and use the bundled client:
 
 ```bash
@@ -454,6 +474,7 @@ Source layout:
 - [`docs/troubleshooting.md`](./docs/troubleshooting.md) — common failure modes and fixes.
 - [`docs/usage-guide.md`](./docs/usage-guide.md) — end-to-end walkthroughs.
 - [`docs/implementation-plan.md`](./docs/implementation-plan.md) — staged security, protocol, and feature roadmap.
+- [`docs/project-status.md`](./docs/project-status.md) — delivered versions, current release state, and remaining work.
 
 ---
 

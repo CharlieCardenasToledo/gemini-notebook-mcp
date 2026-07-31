@@ -1,25 +1,23 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { chromium } from "patchright";
 import { CONFIG } from "../dist/config.js";
 
-const claudeDesktopDataDir = path.join(
-  os.homedir(),
-  "AppData",
-  "Local",
-  "Packages",
-  "Claude_pzs8sxrjxfjjc",
-  "LocalCache",
-  "Local",
-  "notebooklm-mcp",
-  "Data"
-);
-const candidateDataDirs = [
-  process.env.NOTEBOOKLM_DATA_DIR,
-  CONFIG.dataDir,
-  claudeDesktopDataDir,
-].filter(Boolean);
+if (process.env.NOTEBOOKLM_LIVE_DIAGNOSTICS !== "true") {
+  throw new Error(
+    "Live DOM/content diagnostics are disabled. Set NOTEBOOKLM_LIVE_DIAGNOSTICS=true only after reviewing the privacy impact."
+  );
+}
+if (
+  (process.argv.includes("--probe") || process.argv.includes("--menu")) &&
+  process.env.NOTEBOOKLM_LIVE_ALLOW_MUTATION !== "true"
+) {
+  throw new Error(
+    "Mutating live probes are disabled. Set NOTEBOOKLM_LIVE_ALLOW_MUTATION=true to acknowledge the account-side change."
+  );
+}
+
+const candidateDataDirs = [process.env.NOTEBOOKLM_DATA_DIR, CONFIG.dataDir].filter(Boolean);
 let dataDir;
 let activeNotebook;
 
@@ -41,7 +39,7 @@ for (const candidate of candidateDataDirs) {
 }
 
 if (!dataDir) {
-  throw new Error(`Could not locate library.json in: ${candidateDataDirs.join(", ")}`);
+  throw new Error("Could not locate library.json in the configured NotebookLM data directory");
 }
 
 const libraryPath = path.join(dataDir, "library.json");

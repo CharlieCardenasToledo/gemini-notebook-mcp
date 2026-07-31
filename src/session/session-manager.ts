@@ -20,7 +20,7 @@ import { hashLogValue, log } from "../utils/logger.js";
 import type { SessionInfo } from "../types.js";
 import { randomUUID } from "node:crypto";
 import { normalizeNotebookUrl } from "../notebooklm/url.js";
-import { Selectors } from "../notebooklm/selectors.js";
+import { Selectors, joinAlt } from "../notebooklm/selectors.js";
 import { UiChangedError } from "../errors.js";
 import { runWithOperationBoundary } from "../utils/operation.js";
 
@@ -295,9 +295,16 @@ export class SessionManager {
           // Angular hydrates the grid after domcontentloaded (same class of race
           // already documented for the chat page).
           const cardSelector = Selectors.notebooks.projectCard;
-          try {
-            await page.waitForSelector(cardSelector, { timeout: 12000 });
-          } catch {
+          const homeState = await Promise.any([
+            page.waitForSelector(cardSelector, { timeout: 12_000 }).then(() => "cards" as const),
+            page
+              .locator(joinAlt(Selectors.notebooks.emptyState))
+              .first()
+              .waitFor({ state: "visible", timeout: 12_000 })
+              .then(() => "empty" as const),
+          ]).catch(() => null);
+          if (homeState === "empty") return [];
+          if (homeState !== "cards") {
             const diagnostics = await page
               .evaluate(() => ({
                 title: document.title,
