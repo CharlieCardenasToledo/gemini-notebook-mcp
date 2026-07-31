@@ -30,7 +30,7 @@
 import type { Page } from "patchright";
 import { UiChangedError } from "../errors.js";
 
-export const NOTEBOOK_UI_SELECTOR_VERSION = "2026.07.3";
+export const NOTEBOOK_UI_SELECTOR_VERSION = "2026.07.4";
 
 export const Selectors = {
   auth: {
@@ -447,6 +447,16 @@ export const Selectors = {
      * "date · N sources" line.
      */
     projectCard: 'a.primary-action-button[href*="/notebook/"]',
+    emptyState: [
+      "app-empty-state",
+      "notebooklm-empty-state",
+      "[data-testid='empty-state']",
+      ".empty-state",
+      '[role="main"] [aria-label*="no notebooks" i]',
+      '[role="main"] [aria-label*="sin notebooks" i]',
+      '[role="main"] [aria-label*="keine notebooks" i]',
+      '[role="main"] [aria-label*="ノートブックはありません" i]',
+    ],
     cardMenuButton: [
       'button[aria-label*="menu" i]',
       'button[aria-label*="options" i]',
@@ -537,6 +547,7 @@ export const SelectorGroups = {
   "studio.audioMoreMenu": Selectors.studio.audioMoreMenuButton,
   "studio.audioDownload": Selectors.studio.audioDownloadMenuItem,
   "notebooks.projectCard": [Selectors.notebooks.projectCard],
+  "notebooks.emptyState": Selectors.notebooks.emptyState,
 } as const;
 
 export type SelectorGroupName = keyof typeof SelectorGroups;

@@ -123,6 +123,30 @@ Exit criteria:
 - Citations remain structured and bounded in latency.
 - Browser and API backends have unambiguous names, storage, quotas, and provenance.
 
+## 2.3.1 — Safe live verification
+
+Status: implemented for the 2.3.1 release.
+
+Delivered in this release:
+
+- Added a cross-platform MCP preflight that starts the compiled server with a
+  temporary data directory and exercises browser-independent read-only tools.
+- Added an opt-in authenticated, read-only NotebookLM smoke suite for the account
+  grid, sources, source status, Audio Overview status, library-sync preview, and
+  persisted artifact jobs.
+- Classified missing authentication, a locked profile, or no available notebook as
+  environmental skips while treating selector and product failures as test failures.
+- Redacted URLs, paths, email addresses, and identifiers from live diagnostics, and
+  limited output to aggregate counts and states.
+- Required explicit environment acknowledgement before legacy diagnostics or chat
+  probes can read detailed live state or mutate a NotebookLM conversation.
+- Distinguished a verified empty NotebookLM account grid from a broken home-grid
+  selector and added an anonymized empty-state fixture.
+
+The browser-independent preflight runs in the full CI matrix. The authenticated suite
+remains an explicit local/release check because CI does not receive a Google profile
+or credentials.
+
 ## Release discipline
 
 For each release:

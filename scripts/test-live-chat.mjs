@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
+if (process.env.NOTEBOOKLM_LIVE_ALLOW_MUTATION !== "true") {
+  throw new Error(
+    "This test writes two questions to the live NotebookLM chat. Set NOTEBOOKLM_LIVE_ALLOW_MUTATION=true to acknowledge the account-side change."
+  );
+}
+
 const endpoint = new URL(process.env.NOTEBOOKLM_MCP_URL ?? "http://127.0.0.1:3000/mcp");
 const client = new Client({
   name: "gemini-notebook-mcp-live-test",
