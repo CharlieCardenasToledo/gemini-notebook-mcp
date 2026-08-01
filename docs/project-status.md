@@ -11,8 +11,7 @@ and still-pending work.
 | Surface | Version | State |
 | --- | --- | --- |
 | GitHub `main` | 2.3.2 | Merged through PR #16 (`c168145`) |
-| npm registry | 2.3.1 | Published under the `latest` tag |
-| npm release candidate | 2.3.2 | Merged and validated; publication pending |
+| npm registry | 2.3.2 | Published under the `latest` tag |
 
 ## Completed work
 
@@ -117,11 +116,11 @@ Version 2.3.1 is complete: the implementation is merged, CI and the authenticate
 read-only browser suite pass, npm publication is live, and the remote tarball has been
 verified. No release-specific activity remains open.
 
-## Work required to finish 2.3.2
+## 2.3.2 completion status
 
-1. Publish 2.3.2 to npm from the merged commit, preferably with provenance.
-2. Verify that `latest` resolves to 2.3.2 and inspect the remote tarball integrity and
-   entry count.
+Version 2.3.2 is complete: the implementation is merged, CI and CodeQL pass, npm
+`latest` resolves to 2.3.2, and the remote 177-entry tarball exposes valid SHA-512
+integrity metadata. No release-specific activity remains open.
 
 ## Remaining product roadmap
 
