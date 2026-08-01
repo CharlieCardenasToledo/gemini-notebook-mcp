@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default branch.
 - Re-running a release workflow now skips an already-published immutable version and
   verifies its remote tarball instead of attempting a duplicate publication.
+- Registry propagation polling now treats an initially unavailable version as a
+  retryable state under Bash `errexit` instead of terminating after the first query.
 
 ## [2.3.2] - 2026-07-31
 
