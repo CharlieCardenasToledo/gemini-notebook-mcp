@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   first new row to the current call merely because it appeared first. Ambiguous or
   metadata-poor outcomes tell clients not to retry automatically and to reconcile with
   `list_sources` instead.
+- YouTube canonicalization now accepts only `youtube.com` and its real subdomains,
+  rejecting lookalike hosts such as `notyoutube.com`.
 
 ## [2.3.1] - 2026-07-31
 

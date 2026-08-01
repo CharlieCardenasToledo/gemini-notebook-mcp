@@ -207,6 +207,16 @@ test("source correlation does not trust a URL match backed only by a derived id"
   assert.equal(result.source, undefined);
 });
 
+test("source correlation rejects lookalike YouTube host names", () => {
+  const result = correlateAddedSource(
+    { type: "youtube", content: "https://www.youtube.com/watch?v=abc123" },
+    [],
+    [source("attacker", "Lookalike", "https://notyoutube.com/watch?v=abc123", "youtube")]
+  );
+  assert.equal(result.correlation.status, "accepted_unverified");
+  assert.equal(result.source, undefined);
+});
+
 test("source inventory diff is independent of DOM ordering", () => {
   const existing = source("existing", "Existing");
   const added = source("added", "Added");

@@ -300,7 +300,7 @@ function canonicalSourceUrl(value: string, type: SourceType): string | null {
       const videoId =
         host === "youtu.be"
           ? parsed.pathname.split("/").filter(Boolean)[0]
-          : host.endsWith("youtube.com")
+          : host === "youtube.com" || host.endsWith(".youtube.com")
             ? parsed.searchParams.get("v") ||
               parsed.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1]
             : null;
