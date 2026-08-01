@@ -10,9 +10,8 @@ and still-pending work.
 
 | Surface | Version | State |
 | --- | --- | --- |
-| GitHub `main` | 2.3.2 | Merged through PR #16 (`c168145`) |
-| Current branch | 2.3.3 | Trusted npm publication candidate |
-| npm registry | 2.3.2 | Published under the `latest` tag |
+| GitHub `main` | 2.3.3 | Release implementation merged through PR #19 (`fe7373e`) |
+| npm registry | 2.3.3 | Published under `latest` with OIDC provenance |
 
 ## Completed work
 
@@ -123,14 +122,23 @@ Version 2.3.2 is complete: the implementation is merged, CI and CodeQL pass, npm
 `latest` resolves to 2.3.2, and the remote 177-entry tarball exposes valid SHA-512
 integrity metadata. No release-specific activity remains open.
 
-## 2.3.3 release candidate
+## 2.3.3 completion status
 
-Version 2.3.3 automates npm publication from a GitHub Release using trusted
-publishing/OIDC and provenance. It adds release metadata and default-branch gates,
-runs the complete local verification suite before publication, and installs the
-result back from npm for a packaged MCP smoke test. Before the first release, an npm
-package owner must register `publish.yml` as the package's GitHub Actions trusted
-publisher; no `NPM_TOKEN` is used.
+Version 2.3.3 was published from GitHub Release `v2.3.3` through npm trusted
+publishing/OIDC without an `NPM_TOKEN`. npm exposes SHA-512 integrity and SLSA
+provenance for the package. The publish operation succeeded on the first automated
+run; its post-publication polling step exposed a Bash `errexit` interaction and has
+been corrected so an initially unavailable registry version is retried as intended.
+
+Validation completed for 2.3.3:
+
+- `npm run check`: 53/53 tests passed; format, lint, and TypeScript build passed.
+- `npm run test:live:preflight`: passed as version 2.3.3.
+- `npm audit --json`: zero known vulnerabilities.
+- `npm run package:smoke`: passed with version 2.3.3 and 31 tools.
+- `npm pack --dry-run --json`: valid local 2.3.3 tarball with 178 entries.
+- GitHub CI and CodeQL passed before PR #19 was merged.
+- npm `latest` resolves to 2.3.3 and exposes SHA-512 integrity plus SLSA provenance.
 
 ## Remaining product roadmap
 
@@ -183,9 +191,7 @@ publisher; no `NPM_TOKEN` is used.
 
 ### Release operations
 
-- Complete the one-time npm trusted-publisher registration for `publish.yml`, merge
-  2.3.3, and create the matching non-prerelease GitHub Release.
-- Confirm that npm records provenance and that the workflow's clean registry install
-  passes its MCP startup, version, and tool-count verification.
+- Monitor the next release's corrected post-publication registry install and MCP
+  smoke verification end to end.
 - Remove merged remote branches after each release and keep `main` as the only
   long-lived branch unless a maintenance branch is explicitly required.

@@ -165,7 +165,9 @@ Delivered in this release:
 
 ## 2.3.3 — Trusted npm publication
 
-Status: implementation in progress.
+Status: implemented and published. The first OIDC release exposed a Bash `errexit`
+interaction in the registry propagation loop; the poll now handles an unavailable
+version as a retryable state.
 
 Scope:
 

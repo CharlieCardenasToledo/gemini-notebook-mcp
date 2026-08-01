@@ -86,9 +86,11 @@ jobs:
         shell: bash
         run: |
           for attempt in $(seq 1 12); do
-            remote_version=$(npm view "$PACKAGE_SPEC" version --json 2>/dev/null | tr -d '"')
-            if [ "$remote_version" = "$PACKAGE_VERSION" ]; then
-              exit 0
+            if remote_version=$(npm view "$PACKAGE_SPEC" version --json 2>/dev/null); then
+              remote_version="${remote_version//\"/}"
+              if [ "$remote_version" = "$PACKAGE_VERSION" ]; then
+                exit 0
+              fi
             fi
             sleep $((attempt * 5))
           done
