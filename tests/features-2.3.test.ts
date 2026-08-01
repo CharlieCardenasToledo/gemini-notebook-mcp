@@ -8,7 +8,12 @@ import type { Page } from "patchright";
 import { NotebookLibrary } from "../src/library/notebook-library.js";
 import { ArtifactStore } from "../src/notebooklm/artifact-store.js";
 import { extractCitations } from "../src/notebooklm/citations.js";
-import { listSources } from "../src/notebooklm/sources.js";
+import {
+  correlateAddedSource,
+  diffSourceInventories,
+  listSources,
+  type SourceSummary,
+} from "../src/notebooklm/sources.js";
 import { buildToolDefinitions } from "../src/tools/definitions.js";
 import { validateToolArguments } from "../src/tools/validation.js";
 
@@ -143,6 +148,81 @@ test("source inventory distinguishes a changed UI from an empty notebook", async
   await assert.rejects(listSources(page), /UI_CHANGED/);
 });
 
+test("source correlation ignores concurrent additions and matches canonical URLs", () => {
+  const before: SourceSummary[] = [source("existing", "Existing", null)];
+  const concurrent = source("foreign", "Unrelated", "https://example.com/other");
+  const submitted = source("submitted", "Video", "https://youtu.be/abc123?t=12", "youtube");
+  const result = correlateAddedSource(
+    { type: "youtube", content: "https://www.youtube.com/watch?v=abc123" },
+    before,
+    [...before, concurrent, submitted]
+  );
+
+  assert.equal(result.correlation.status, "exact");
+  assert.equal(result.correlation.matched_by, "url");
+  assert.equal(result.correlation.candidate_count, 2);
+  assert.equal(result.source?.source_id, "submitted");
+});
+
+test("source correlation uses exact normalized text titles", () => {
+  const before: SourceSummary[] = [];
+  const result = correlateAddedSource(
+    { type: "text", content: "Body", title: "  API   Résumé  " },
+    before,
+    [source("foreign", "Other"), source("submitted", "api résumé")]
+  );
+
+  assert.equal(result.correlation.status, "exact");
+  assert.equal(result.correlation.matched_by, "title");
+  assert.equal(result.source?.source_id, "submitted");
+});
+
+test("source correlation never assigns a merely unique or ambiguous new row", () => {
+  const unique = correlateAddedSource(
+    { type: "url", content: "https://expected.example/document" },
+    [],
+    [source("foreign", "Foreign", "https://other.example/document")]
+  );
+  assert.equal(unique.correlation.status, "accepted_unverified");
+  assert.equal(unique.source, undefined);
+  assert.match(unique.message ?? "", /Do not retry automatically/);
+
+  const ambiguous = correlateAddedSource(
+    { type: "text", content: "Body", title: "Release notes" },
+    [],
+    [source("first", "Release notes"), source("second", "Release notes")]
+  );
+  assert.equal(ambiguous.correlation.status, "ambiguous");
+  assert.equal(ambiguous.correlation.matched_by, "title");
+  assert.equal(ambiguous.source, undefined);
+});
+
+test("source correlation does not trust a URL match backed only by a derived id", () => {
+  const result = correlateAddedSource(
+    { type: "url", content: "https://expected.example/document" },
+    [],
+    [source("src_1234567890abcdef", "Expected", "https://expected.example/document")]
+  );
+  assert.equal(result.correlation.status, "accepted_unverified");
+  assert.equal(result.source, undefined);
+});
+
+test("source correlation rejects lookalike YouTube host names", () => {
+  const result = correlateAddedSource(
+    { type: "youtube", content: "https://www.youtube.com/watch?v=abc123" },
+    [],
+    [source("attacker", "Lookalike", "https://notyoutube.com/watch?v=abc123", "youtube")]
+  );
+  assert.equal(result.correlation.status, "accepted_unverified");
+  assert.equal(result.source, undefined);
+});
+
+test("source inventory diff is independent of DOM ordering", () => {
+  const existing = source("existing", "Existing");
+  const added = source("added", "Added");
+  assert.deepEqual(diffSourceInventories([existing], [added, existing]), [added]);
+});
+
 test("citations expose structured compatibility fields", async () => {
   const { document } = parseHTML(`
     <div class="to-user-container"><div class="message-text-content">
@@ -198,3 +278,19 @@ test("2.3 tool schemas validate YouTube, source lookup, and persistent artifacts
   );
   assert.throws(() => validateToolArguments("get_source", {}), /source_id or name is required/);
 });
+
+function source(
+  sourceId: string,
+  name: string,
+  url: string | null = null,
+  type: SourceSummary["type"] = "unknown"
+): SourceSummary {
+  return {
+    source_id: sourceId,
+    name,
+    type,
+    status: "ready",
+    url,
+    position: 0,
+  };
+}

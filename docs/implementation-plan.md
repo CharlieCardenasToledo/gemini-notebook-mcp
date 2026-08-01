@@ -147,6 +147,22 @@ The browser-independent preflight runs in the full CI matrix. The authenticated 
 remains an explicit local/release check because CI does not receive a Google profile
 or credentials.
 
+## 2.3.2 — Safe source correlation
+
+Status: implemented for the 2.3.2 release.
+
+Delivered in this release:
+
+- Separated source-submission acceptance from source-row identity verification.
+- Correlated new URL and YouTube rows by canonical URL plus a Google-exposed stable
+  ID, and pasted-text rows by exact normalized requested title.
+- Returned no `source_id` when concurrent changes or missing UI metadata prevent an
+  exact match, avoiding attribution of another client's source to the current call.
+- Added explicit correlation states and non-retry guidance so uncertain success does
+  not cause duplicate ingestion.
+- Added deterministic concurrency and duplicate-candidate regression tests without
+  requiring new unverified browser selectors.
+
 ## Release discipline
 
 For each release:

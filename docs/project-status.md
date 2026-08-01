@@ -12,6 +12,7 @@ and still-pending work.
 | --- | --- | --- |
 | GitHub `main` | 2.3.1 | Merged through PR #13 (`47e0a0a`) |
 | npm registry | 2.3.1 | Published under the `latest` tag |
+| Active release candidate | 2.3.2 | Safe source correlation; merge and publication pending |
 
 ## Completed work
 
@@ -74,6 +75,16 @@ and still-pending work.
 - Distinguished a verified empty NotebookLM account from a broken home-grid selector.
 - Added the safe preflight to every operating-system/Node combination in CI.
 
+### 2.3.2 — Safe source correlation
+
+- Separates an accepted source submission from verified source-row identity.
+- Matches canonical URLs backed by Google-exposed stable IDs and exact requested text
+  titles instead of selecting the first new row after a count increase.
+- Returns explicit ambiguous/unverified outcomes without a foreign `source_id` when
+  another client changes the notebook concurrently.
+- Prevents automatic retries from duplicating a source whose submission was accepted
+  but whose row identity could not be proven.
+
 Local validation completed for 2.3.1:
 
 - `npm run check`: 42/42 tests passed; format, lint, and TypeScript build passed.
@@ -111,8 +122,6 @@ verified. No release-specific activity remains open.
   boundaries are verified.
 - Add file and Google Drive source pickers, including upload progress, indexing state,
   cancellation, size/type validation, and account permission handling.
-- Improve batch correlation so concurrent account changes cannot be mistaken for the
-  source created by the current call.
 
 ### Studio artifacts
 

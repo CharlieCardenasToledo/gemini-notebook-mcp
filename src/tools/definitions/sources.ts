@@ -43,8 +43,10 @@ export const addSourceTool: Tool = {
     "  • `text` — paste raw text (treated as a copied document)\n" +
     "  • `youtube` — import a public YouTube URL\n\n" +
     "File and Google-Drive uploads are not yet exposed because their picker flows require additional permission and path controls.\n\n" +
-    "Returns `sourceCountBefore`/`sourceCountAfter` so the caller can verify " +
-    "the new source landed. Call once per source — multiple sources require " +
+    "Returns `sourceCountBefore`/`sourceCountAfter` plus a `correlation` status. " +
+    "A `source` object is returned only after an exact canonical-URL match with a Google-exposed stable ID, or an exact requested-title match; " +
+    "`accepted_unverified` and `ambiguous` mean the submission was accepted but no safe identity could be assigned. " +
+    "Do not retry those outcomes automatically—use `list_sources` to reconcile. Call once per source; multiple sources require " +
     "multiple calls. NotebookLM finishes indexing within 5–30 seconds; " +
     "subsequent `ask_question` calls then have the new source in context. " +
     "Account and source limits vary; rely on the live Google interface.\n\n" +
@@ -130,7 +132,7 @@ export const getSourceStatusTool: Tool = {
 export const batchAddSourcesTool: Tool = {
   name: "batch_add_sources",
   description:
-    "Add up to 25 URL, YouTube, or pasted-text sources sequentially in one authenticated notebook session. Stops on the first failure by default and returns a result for every attempted item.",
+    "Add up to 25 URL, YouTube, or pasted-text sources sequentially in one authenticated notebook session. Stops on the first failure by default and returns counts plus safe correlation status for every attempted item; concurrent additions are never assigned to the current item without an exact match.",
   inputSchema: {
     type: "object",
     properties: {

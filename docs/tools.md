@@ -123,15 +123,36 @@ Add a source to a notebook. v2.3 supports `type=url` (web crawl), `type=youtube`
     "type": "url",
     "sourceCountBefore": 12,
     "sourceCountAfter": 13,
+    "correlation": {
+      "status": "exact",
+      "matched_by": "url",
+      "candidate_count": 1
+    },
     "source": {
       "source_id": "src_…",
       "name": "n8n JMESPath builtin",
       "type": "web",
-      "status": "ready"
+      "status": "ready",
+      "url": "https://docs.n8n.io/code/builtin/json-jmespath/"
     }
   }
 }
 ```
+
+The source count proves that NotebookLM accepted a submission; it does not by itself
+prove which row belongs to the call. `correlation.status` is therefore one of:
+
+- `exact` — one new row matched a canonical URL backed by a Google-exposed stable ID,
+  or matched the exact normalized requested text title; only this status includes
+  `source`.
+- `accepted_unverified` — the count increased, but the row exposed insufficient
+  identity metadata.
+- `ambiguous` — multiple concurrent inventory changes prevented a unique match.
+- `failed` — the submission did not complete or the count did not increase.
+
+Do not automatically retry `accepted_unverified` or `ambiguous`: the source may have
+been created and a retry could duplicate it. Call `list_sources` to reconcile the
+current inventory.
 
 ---
 
@@ -141,7 +162,7 @@ Add a source to a notebook. v2.3 supports `type=url` (web crawl), `type=youtube`
 
 ## batch_add_sources — new in v2.3
 
-Accepts `sources` (1–25 objects with the same `type`, `content`, and optional `title` fields as `add_source`) and optional `stop_on_error` (default `true`). Returns `{ results, added, failed }` and reuses one authenticated notebook session.
+Accepts `sources` (1–25 objects with the same `type`, `content`, and optional `title` fields as `add_source`) and optional `stop_on_error` (default `true`). Returns `{ results, added, failed }`, reuses one authenticated notebook session, and applies the same per-item safe-correlation contract. `added` counts accepted submissions; inspect each result's `correlation` before using a returned source identity.
 
 ## generate_artifact / list_artifacts — new in v2.3
 

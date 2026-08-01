@@ -227,8 +227,8 @@ All tools below are registered in the current 2.x release and visible under the 
 
 | Tool | Purpose |
 |---|---|
-| `add_source` | Add a web URL, public YouTube URL, or pasted text source. Returns counts and the detected source when available. |
-| `batch_add_sources` | Add up to 25 URL, YouTube, or text sources sequentially in one session. |
+| `add_source` | Add a web URL, public YouTube URL, or pasted text source. Returns acceptance counts and an exact/ambiguous/unverified correlation result. |
+| `batch_add_sources` | Add up to 25 URL, YouTube, or text sources sequentially without attributing concurrent additions to the wrong item. |
 | `list_sources` | List visible sources with best-effort IDs, types, URLs, and indexing states. |
 | `get_source` | Resolve one source by ID or exact visible name. |
 | `get_source_status` | Refresh one source and return its current indexing state. |

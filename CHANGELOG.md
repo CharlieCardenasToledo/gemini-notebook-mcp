@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2] - 2026-07-31
+
+### Added
+
+- Added explicit `exact`, `accepted_unverified`, `ambiguous`, and `failed`
+  correlation states to source-ingestion results.
+- Added regression coverage for concurrent source additions, canonical YouTube URLs,
+  normalized text titles, duplicate matches, and DOM-order-independent inventory
+  differences.
+
+### Changed
+
+- `add_source` and `batch_add_sources` now return a source identity only when a new
+  row matches the submitted canonical URL with a Google-exposed stable ID, or matches
+  the requested text title exactly. Derived IDs are never promoted solely because a
+  URL appeared after submission.
+- A source-count increase still records an accepted submission, but never assigns the
+  first new row to the current call merely because it appeared first. Ambiguous or
+  metadata-poor outcomes tell clients not to retry automatically and to reconcile with
+  `list_sources` instead.
+- YouTube canonicalization now accepts only `youtube.com` and its real subdomains,
+  rejecting lookalike hosts such as `notyoutube.com`.
+
 ## [2.3.1] - 2026-07-31
 
 ### Added
