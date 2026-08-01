@@ -10,9 +10,9 @@ and still-pending work.
 
 | Surface | Version | State |
 | --- | --- | --- |
-| GitHub `main` | 2.3.1 | Merged through PR #13 (`47e0a0a`) |
+| GitHub `main` | 2.3.2 | Merged through PR #16 (`c168145`) |
 | npm registry | 2.3.1 | Published under the `latest` tag |
-| Active release candidate | 2.3.2 | Safe source correlation; merge and publication pending |
+| npm release candidate | 2.3.2 | Merged and validated; publication pending |
 
 ## Completed work
 
@@ -85,6 +85,18 @@ and still-pending work.
 - Prevents automatic retries from duplicating a source whose submission was accepted
   but whose row identity could not be proven.
 
+Validation completed for 2.3.2:
+
+- `npm run check`: 48/48 tests passed; format, lint, and TypeScript build passed.
+- `npm run test:live:preflight`: passed as version 2.3.2.
+- `npm audit --json`: zero known vulnerabilities.
+- `npm run package:smoke`: passed with version 2.3.2 and 31 tools.
+- `npm pack --dry-run --json`: valid 2.3.2 tarball with 177 entries.
+- GitHub CI: CodeQL, package smoke, and all Windows/macOS/Ubuntu jobs on Node
+  22/24 passed before PR #16 was merged.
+- CodeQL's lookalike-YouTube-host alert was corrected and the follow-up analysis
+  passed.
+
 Local validation completed for 2.3.1:
 
 - `npm run check`: 42/42 tests passed; format, lint, and TypeScript build passed.
@@ -104,6 +116,12 @@ Local validation completed for 2.3.1:
 Version 2.3.1 is complete: the implementation is merged, CI and the authenticated
 read-only browser suite pass, npm publication is live, and the remote tarball has been
 verified. No release-specific activity remains open.
+
+## Work required to finish 2.3.2
+
+1. Publish 2.3.2 to npm from the merged commit, preferably with provenance.
+2. Verify that `latest` resolves to 2.3.2 and inspect the remote tarball integrity and
+   entry count.
 
 ## Remaining product roadmap
 
