@@ -22,9 +22,9 @@
  *   3. Source-type buttons no longer ship with aria-labels — see
  *      selectors.ts for the icon-/text-based anchors.
  *
- *   4. Insert verification is COUNT-BASED: snapshot
- *      `.single-source-container` count before the submit click, then poll
- *      after the dialog closes (up to 90 s — URL crawls are slow).
+ *   4. Insert acceptance is COUNT-BASED, but source identity is correlated
+ *      separately by canonical URL or exact requested title. A concurrent
+ *      source addition is never returned as though it belonged to this call.
  */
 
 import type { Page } from "patchright";
@@ -60,8 +60,15 @@ export interface AddSourceResult {
   type: SourceType;
   sourceCountBefore: number;
   sourceCountAfter: number;
+  correlation: SourceCorrelation;
   message?: string;
   source?: SourceSummary;
+}
+
+export interface SourceCorrelation {
+  status: "exact" | "accepted_unverified" | "ambiguous" | "failed";
+  matched_by: "url" | "title" | null;
+  candidate_count: number;
 }
 
 export async function addSource(page: Page, input: AddSourceInput): Promise<AddSourceResult> {
@@ -72,7 +79,7 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
   );
 
   try {
-    const inventoryBefore = await listSources(page).catch(() => [] as SourceSummary[]);
+    let inventoryBefore = await listSources(page).catch(() => [] as SourceSummary[]);
     // 1. Open the Add-source dialog (or use one that's already open).
     await openAddSourceOverlay(page);
 
@@ -86,7 +93,8 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
     // 4. Snapshot the source count *before* submitting. The Fork captures it
     //    here (dialog still open, sidebar list not yet updated) so the
     //    post-close poll can detect a real increment.
-    const before = await countSources(page);
+    inventoryBefore = await listSources(page).catch(() => inventoryBefore);
+    const before = Math.max(await countSources(page), inventoryBefore.length);
     log.info(`  📊 source count before submit: ${before}`);
 
     // 5. Click the primary "Insert" / "Hinzufügen" button.
@@ -109,6 +117,7 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
           type: input.type,
           sourceCountBefore: before,
           sourceCountAfter: before,
+          correlation: failedCorrelation(),
           message:
             `NotebookLM redirected to a different notebook (${currentUuid}) instead of ` +
             `the target (${expectedUuid}). This is a known quirk for pasted-text uploads — ` +
@@ -119,21 +128,27 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
 
     // 8. Poll the source count for up to 90 s; URL crawls and large pastes
     //    can take a while to materialise as a sidebar entry.
-    const after = await waitForSourceCountIncrease(page, before, 90_000);
+    const firstObservedCount = await waitForSourceCountIncrease(page, before, 90_000);
 
-    if (after > before) {
-      const inventoryAfter = await listSources(page).catch(() => [] as SourceSummary[]);
-      const knownIds = new Set(inventoryBefore.map((source) => source.source_id));
-      const addedSource =
-        inventoryAfter.find((source) => !knownIds.has(source.source_id)) ??
-        inventoryAfter.find((source) => input.title && source.name === input.title);
+    if (firstObservedCount > before) {
+      const observation = await waitForSourceCorrelation(
+        page,
+        input,
+        inventoryBefore,
+        firstObservedCount,
+        3_000
+      );
+      const after = observation.sourceCountAfter;
+      const correlated = observation.result;
       log.success(`  ✅ source added (count ${before} → ${after})`);
       return {
         success: true,
         type: input.type,
         sourceCountBefore: before,
         sourceCountAfter: after,
-        ...(addedSource && { source: addedSource }),
+        correlation: correlated.correlation,
+        ...(correlated.source && { source: correlated.source }),
+        ...(correlated.message && { message: correlated.message }),
       };
     }
 
@@ -143,7 +158,8 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
       success: false,
       type: input.type,
       sourceCountBefore: before,
-      sourceCountAfter: after,
+      sourceCountAfter: firstObservedCount,
+      correlation: failedCorrelation(),
       message:
         errorText ||
         "Source dialog completed but the source list did not grow within 90 s. " +
@@ -157,8 +173,151 @@ export async function addSource(page: Page, input: AddSourceInput): Promise<AddS
       type: input.type,
       sourceCountBefore: 0,
       sourceCountAfter: 0,
+      correlation: failedCorrelation(),
       message: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+interface CorrelatedSourceResult {
+  correlation: SourceCorrelation;
+  source?: SourceSummary;
+  message?: string;
+}
+
+/**
+ * Compare two inventories without trusting DOM order. Source IDs are stable
+ * best-effort identities; fallback IDs include duplicate occurrence indexes,
+ * so a newly added duplicate still appears in this set difference.
+ */
+export function diffSourceInventories(
+  before: readonly SourceSummary[],
+  after: readonly SourceSummary[]
+): SourceSummary[] {
+  const knownIds = new Set(before.map((source) => source.source_id));
+  return after.filter((source) => !knownIds.has(source.source_id));
+}
+
+/**
+ * Return a source only when its identity can be tied to the submitted input.
+ * A single new row is not sufficient: it may have been added concurrently by
+ * another browser or MCP instance.
+ */
+export function correlateAddedSource(
+  input: AddSourceInput,
+  before: readonly SourceSummary[],
+  after: readonly SourceSummary[]
+): CorrelatedSourceResult {
+  const candidates = diffSourceInventories(before, after);
+  const expectedUrl = input.type === "url" || input.type === "youtube" ? input.content : null;
+  const canonicalExpectedUrl = expectedUrl ? canonicalSourceUrl(expectedUrl, input.type) : null;
+  const urlMatches = canonicalExpectedUrl
+    ? candidates.filter(
+        (source) =>
+          source.url !== null &&
+          !isDerivedSourceId(source.source_id) &&
+          canonicalSourceUrl(source.url, input.type) === canonicalExpectedUrl
+      )
+    : [];
+  if (urlMatches.length === 1) {
+    return {
+      correlation: {
+        status: "exact",
+        matched_by: "url",
+        candidate_count: candidates.length,
+      },
+      source: urlMatches[0],
+    };
+  }
+  if (urlMatches.length > 1) return ambiguousCorrelation(candidates.length, "url");
+
+  const expectedTitle = input.type === "text" ? normalizeSourceTitle(input.title) : null;
+  const titleMatches = expectedTitle
+    ? candidates.filter((source) => normalizeSourceTitle(source.name) === expectedTitle)
+    : [];
+  if (titleMatches.length === 1) {
+    return {
+      correlation: {
+        status: "exact",
+        matched_by: "title",
+        candidate_count: candidates.length,
+      },
+      source: titleMatches[0],
+    };
+  }
+  if (titleMatches.length > 1) return ambiguousCorrelation(candidates.length, "title");
+
+  if (candidates.length > 1) return ambiguousCorrelation(candidates.length, null);
+  return {
+    correlation: {
+      status: "accepted_unverified",
+      matched_by: null,
+      candidate_count: candidates.length,
+    },
+    message:
+      "NotebookLM accepted the source submission and the source count increased, " +
+      "but the new row did not expose enough identity metadata for safe correlation. " +
+      "Do not retry automatically; call list_sources to inspect the current inventory.",
+  };
+}
+
+function ambiguousCorrelation(
+  candidateCount: number,
+  matchedBy: SourceCorrelation["matched_by"]
+): CorrelatedSourceResult {
+  return {
+    correlation: {
+      status: "ambiguous",
+      matched_by: matchedBy,
+      candidate_count: candidateCount,
+    },
+    message:
+      "NotebookLM accepted the source submission, but concurrent inventory changes " +
+      "made the new source identity ambiguous. No source_id was returned. Do not retry " +
+      "automatically; call list_sources to reconcile the notebook inventory.",
+  };
+}
+
+function failedCorrelation(): SourceCorrelation {
+  return { status: "failed", matched_by: null, candidate_count: 0 };
+}
+
+function normalizeSourceTitle(value: string | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.normalize("NFKC").replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  return normalized || null;
+}
+
+function isDerivedSourceId(value: string): boolean {
+  return /^src_[0-9a-f]{16}$/i.test(value);
+}
+
+function canonicalSourceUrl(value: string, type: SourceType): string | null {
+  try {
+    const parsed = new URL(value);
+    if (type === "youtube") {
+      const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+      const videoId =
+        host === "youtu.be"
+          ? parsed.pathname.split("/").filter(Boolean)[0]
+          : host.endsWith("youtube.com")
+            ? parsed.searchParams.get("v") ||
+              parsed.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/)?.[1]
+            : null;
+      if (videoId) return `youtube:${videoId}`;
+    }
+    parsed.hash = "";
+    parsed.hostname = parsed.hostname.toLowerCase();
+    if (
+      (parsed.protocol === "https:" && parsed.port === "443") ||
+      (parsed.protocol === "http:" && parsed.port === "80")
+    ) {
+      parsed.port = "";
+    }
+    if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+    return parsed.toString();
+  } catch {
+    return null;
   }
 }
 
@@ -481,6 +640,27 @@ async function waitForSourceCountIncrease(
     await safeSleep(page, 500);
   }
   return await countSources(page);
+}
+
+async function waitForSourceCorrelation(
+  page: Page,
+  input: AddSourceInput,
+  inventoryBefore: readonly SourceSummary[],
+  initialCount: number,
+  settleMs: number
+): Promise<{ sourceCountAfter: number; result: CorrelatedSourceResult }> {
+  const deadline = Date.now() + settleMs;
+  let sourceCountAfter = initialCount;
+  let result: CorrelatedSourceResult;
+  do {
+    const inventoryAfter = await listSources(page).catch(() => [] as SourceSummary[]);
+    sourceCountAfter = Math.max(sourceCountAfter, inventoryAfter.length, await countSources(page));
+    result = correlateAddedSource(input, inventoryBefore, inventoryAfter);
+    if (result.correlation.status === "exact") break;
+    if (result.correlation.status === "ambiguous" && result.correlation.matched_by) break;
+    if (Date.now() < deadline) await safeSleep(page, 500);
+  } while (Date.now() < deadline);
+  return { sourceCountAfter, result };
 }
 
 /**
