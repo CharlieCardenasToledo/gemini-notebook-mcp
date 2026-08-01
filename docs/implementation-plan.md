@@ -163,6 +163,32 @@ Delivered in this release:
 - Added deterministic concurrency and duplicate-candidate regression tests without
   requiring new unverified browser selectors.
 
+## 2.3.3 — Trusted npm publication
+
+Status: implementation in progress.
+
+Scope:
+
+- Publish stable versions from a non-prerelease GitHub Release through npm trusted
+  publishing and GitHub OIDC, without an `NPM_TOKEN` secret.
+- Require the release tag to match `package.json`, the package/repository metadata to
+  match the current repository, and the release commit to belong to the default
+  branch.
+- Run the complete project check, safe MCP preflight, and local package smoke test
+  before publication.
+- Make workflow reruns idempotent when npm already contains the immutable version.
+- Wait for registry consistency, inspect the remote tarball, install it from npm, and
+  smoke-test MCP startup, runtime version, and tool discovery.
+
+Acceptance criteria:
+
+- Invalid tags, prerelease versions, private/restricted packages, and repository
+  mismatches fail before publication.
+- The workflow has only `contents: read` and `id-token: write`, and contains no npm
+  token secret.
+- npm shows provenance for the published version.
+- The installed registry package passes `package:smoke` after publication.
+
 ## Release discipline
 
 For each release:
