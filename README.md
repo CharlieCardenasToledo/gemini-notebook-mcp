@@ -475,6 +475,7 @@ Source layout:
 - [`docs/usage-guide.md`](./docs/usage-guide.md) — end-to-end walkthroughs.
 - [`docs/implementation-plan.md`](./docs/implementation-plan.md) — staged security, protocol, and feature roadmap.
 - [`docs/project-status.md`](./docs/project-status.md) — delivered versions, current release state, and remaining work.
+- [`docs/releasing.md`](./docs/releasing.md) — tokenless npm trusted-publishing setup and release procedure.
 
 ---
 

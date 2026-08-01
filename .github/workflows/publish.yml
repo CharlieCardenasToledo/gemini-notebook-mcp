@@ -1,0 +1,111 @@
+name: Publish npm
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the released tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Set up Node.js for npm trusted publishing
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Use an OIDC-capable npm CLI
+        run: npm install --global npm@11.5.1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run release checks
+        run: npm run check
+
+      - name: Run browser-independent MCP preflight
+        run: npm run test:live:preflight
+
+      - name: Smoke-test the local package
+        run: npm run package:smoke
+
+      - name: Validate release metadata
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: npm run release:check
+
+      - name: Require the release commit to belong to the default branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          git fetch --no-tags origin "+refs/heads/${DEFAULT_BRANCH}:refs/remotes/origin/${DEFAULT_BRANCH}"
+          git merge-base --is-ancestor HEAD "origin/${DEFAULT_BRANCH}"
+
+      - name: Check whether the version already exists
+        id: registry
+        env:
+          PACKAGE_SPEC: ${{ steps.release.outputs.package_spec }}
+        shell: bash
+        run: |
+          if npm view "$PACKAGE_SPEC" version --json >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            npm ping
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish with npm provenance
+        if: steps.registry.outputs.published == 'false'
+        run: npm publish --access public --provenance
+
+      - name: Wait for registry consistency
+        env:
+          PACKAGE_SPEC: ${{ steps.release.outputs.package_spec }}
+          PACKAGE_VERSION: ${{ steps.release.outputs.package_version }}
+        shell: bash
+        run: |
+          for attempt in $(seq 1 12); do
+            remote_version=$(npm view "$PACKAGE_SPEC" version --json 2>/dev/null | tr -d '"')
+            if [ "$remote_version" = "$PACKAGE_VERSION" ]; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "Registry did not expose $PACKAGE_SPEC within the verification window" >&2
+          exit 1
+
+      - name: Inspect the published tarball
+        env:
+          PACKAGE_SPEC: ${{ steps.release.outputs.package_spec }}
+        run: npm pack "$PACKAGE_SPEC" --dry-run --json
+
+      - name: Install and smoke-test the published package
+        env:
+          PACKAGE_NAME: ${{ steps.release.outputs.package_name }}
+          PACKAGE_SPEC: ${{ steps.release.outputs.package_spec }}
+        shell: bash
+        run: |
+          install_dir="$RUNNER_TEMP/npm-registry-smoke"
+          npm install --prefix "$install_dir" "$PACKAGE_SPEC" --ignore-scripts --no-audit --no-fund
+          npm run package:smoke -- "$install_dir/node_modules/$PACKAGE_NAME/dist/index.js"
