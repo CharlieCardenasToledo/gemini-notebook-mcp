@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-process.env.PLAYWRIGHT_BROWSERS_PATH ??= "0";
+process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
 
 const args = process.argv.slice(2);
 if (args[0] === "browser") {

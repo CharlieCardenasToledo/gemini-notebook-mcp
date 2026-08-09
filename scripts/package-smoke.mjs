@@ -17,7 +17,12 @@ assert.equal(path.relative(packageRoot, binPath).startsWith(".."), false);
 const browser = await execFileAsync(process.execPath, [binPath, "browser", "status", "--json"], {
   env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: "0" },
 });
-assert.doesNotThrow(() => JSON.parse(browser.stdout));
+const browserStatus = JSON.parse(browser.stdout);
+assert.equal(browserStatus.browser, "chromium");
+assert.equal(typeof browserStatus.installed, "boolean");
+assert.equal(typeof browserStatus.hermetic, "boolean");
+assert.equal(typeof browserStatus.patchrightVersion, "string");
+assert.ok(browserStatus.patchrightVersion.length > 0);
 const expectedVersion = process.env.npm_package_version;
 const client = new Client({ name: "package-smoke", version: "1.0.0" });
 const transport = new StdioClientTransport({

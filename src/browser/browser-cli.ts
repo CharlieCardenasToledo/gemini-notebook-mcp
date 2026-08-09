@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { realpathSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { chromium } from "patchright";
 
@@ -27,6 +28,17 @@ export function resolvePatchrightBin(
   return cli;
 }
 
+export function patchrightNodeModulesRoot(): string {
+  return resolve(dirname(require.resolve("patchright/package.json")), "..");
+}
+
+export function isPathInside(root: string, candidate: string): boolean {
+  const realRoot = realpathSync.native(root);
+  const realCandidate = realpathSync.native(candidate);
+  const suffix = relative(realRoot, realCandidate);
+  return suffix !== "" && !isAbsolute(suffix) && !suffix.startsWith("..");
+}
+
 function patchrightCli(): string {
   const packageFile = require.resolve("patchright/package.json");
   const packageDir = dirname(packageFile);
@@ -36,11 +48,13 @@ function patchrightCli(): string {
 
 function status() {
   const executablePath = chromium.executablePath();
+  const installed = Boolean(executablePath && existsSync(executablePath));
+  const hermetic = !installed || isPathInside(patchrightNodeModulesRoot(), executablePath);
   return {
     browser: "chromium",
-    installed: Boolean(executablePath && existsSync(executablePath)),
-    hermetic: true,
-    executablePath: executablePath || null,
+    installed: installed && hermetic,
+    hermetic,
+    executablePath: installed && hermetic ? executablePath : null,
     patchrightVersion: require("patchright/package.json").version,
   };
 }
