@@ -63,9 +63,11 @@ async function install() {
   const cli = patchrightCli();
   await new Promise<void>((resolvePromise, reject) => {
     const child = spawn(process.execPath, [cli, "install", "chromium"], {
-      stdio: "inherit",
+      stdio: ["inherit", "pipe", "pipe"],
       env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: "0" },
     });
+    child.stdout?.on("data", (chunk) => process.stderr.write(chunk));
+    child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
     child.once("error", reject);
     child.once("exit", (code) =>
       code === 0 ? resolvePromise() : reject(new Error(`Patchright terminó con código ${code}`))

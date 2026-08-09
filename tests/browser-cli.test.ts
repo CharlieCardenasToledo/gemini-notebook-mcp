@@ -1,9 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isPathInside, resolvePatchrightBin } from "../src/browser/browser-cli.js";
+
+test("reserva stdout para JSON y redirige la salida de Patchright a stderr", async () => {
+  const source = await readFile(new URL("../src/browser/browser-cli.ts", import.meta.url), "utf8");
+  assert.match(source, /stdio:\s*\["inherit",\s*"pipe",\s*"pipe"\]/);
+  assert.match(source, /process\.stderr\.write/);
+  assert.doesNotMatch(source, /stdio:\s*"inherit"/);
+});
 
 test("resuelve bin string y object dentro del paquete", async () => {
   const root = await mkdtemp(join(tmpdir(), "patchright-cli-"));
