@@ -42,12 +42,14 @@ jobs:
       - name: Patchright Chromium provisioning smoke
         shell: bash
         run: |
-          PACKAGE_DIR=/tmp/notebooklm-package-smoke/node_modules/@charlie.act7/gemini-notebook-mcp
+          INSTALL_ROOT=/tmp/notebooklm-package-smoke
+          NODE_MODULES_ROOT="$INSTALL_ROOT/node_modules"
+          PACKAGE_DIR="$NODE_MODULES_ROOT/@charlie.act7/gemini-notebook-mcp"
           BIN=$(node -e 'const p=require(process.argv[1]); const b=typeof p.bin === "string" ? p.bin : p.bin["gemini-notebook-mcp"]; process.stdout.write(b)' "$PACKAGE_DIR/package.json")
           export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/external-browser-cache"
           mkdir -p "$PLAYWRIGHT_BROWSERS_PATH"
           node "$PACKAGE_DIR/$BIN" browser install --json > "$RUNNER_TEMP/browser-install.json"
-          node -e 'const fs=require("fs"), path=require("path"); const p=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (p.browser !== "chromium" || p.installed !== true || p.hermetic !== true || !p.executablePath || !fs.statSync(p.executablePath).isFile()) process.exit(1); const root=fs.realpathSync(process.argv[2]); const exe=fs.realpathSync(p.executablePath); const rel=path.relative(root, exe); if (!rel || path.isAbsolute(rel) || rel.startsWith("..")) process.exit(1)' "$RUNNER_TEMP/browser-install.json" "$PACKAGE_DIR/node_modules"
+          node -e 'const fs=require("fs"), path=require("path"); const p=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (p.browser !== "chromium" || p.installed !== true || p.hermetic !== true || !p.executablePath || !fs.statSync(p.executablePath).isFile()) process.exit(1); const root=fs.realpathSync(process.argv[2]); const exe=fs.realpathSync(p.executablePath); const rel=path.relative(root, exe); if (!rel || path.isAbsolute(rel) || rel.startsWith("..")) process.exit(1)' "$RUNNER_TEMP/browser-install.json" "$NODE_MODULES_ROOT"
           node "$PACKAGE_DIR/$BIN" browser status --json > "$RUNNER_TEMP/browser-status.json"
           node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.argv[1], "utf8")); if (p.browser !== "chromium" || p.installed !== true || p.hermetic !== true || !p.executablePath) process.exit(1)' "$RUNNER_TEMP/browser-status.json"
           test -z "$(find "$PLAYWRIGHT_BROWSERS_PATH" -mindepth 1 -print -quit)"
