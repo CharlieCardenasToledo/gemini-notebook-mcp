@@ -1,9 +1,23 @@
 import assert from "node:assert/strict";
 import path from "node:path";
+import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-const entry = path.resolve(process.argv[2] ?? "dist/index.js");
+const execFileAsync = promisify(execFile);
+const entry = path.resolve(process.argv[2] ?? "dist/cli.js");
+const packageRoot = path.dirname(path.dirname(entry));
+const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));
+const bin = typeof manifest.bin === "string" ? manifest.bin : manifest.bin["gemini-notebook-mcp"];
+assert.equal(typeof bin, "string");
+const binPath = path.resolve(packageRoot, bin);
+assert.equal(path.relative(packageRoot, binPath).startsWith(".."), false);
+const browser = await execFileAsync(process.execPath, [binPath, "browser", "status", "--json"], {
+  env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: "0" },
+});
+assert.doesNotThrow(() => JSON.parse(browser.stdout));
 const expectedVersion = process.env.npm_package_version;
 const client = new Client({ name: "package-smoke", version: "1.0.0" });
 const transport = new StdioClientTransport({

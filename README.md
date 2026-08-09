@@ -494,3 +494,4 @@ v2 changes the following defaults — adjust if you depended on v1 behaviour:
 ## License
 
 MIT. See [LICENSE](./LICENSE).
+- Browser provisioning: `browser install --json` instala el Chromium hermético de Patchright y `browser status --json` informa su estado. Chrome estable sigue siendo el navegador preferido; Chromium se usa como fallback. La instalación no se realiza automáticamente.

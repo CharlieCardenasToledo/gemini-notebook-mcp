@@ -3,11 +3,11 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "2.3.3",
+  "version": "2.3.4",
   "description": "MCP server for Google Gemini Notebook (formerly NotebookLM) — chat, source ingestion, audio overviews, citations, stdio + Streamable-HTTP transports.",
   "type": "module",
   "bin": {
-    "gemini-notebook-mcp": "dist/index.js"
+    "gemini-notebook-mcp": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
