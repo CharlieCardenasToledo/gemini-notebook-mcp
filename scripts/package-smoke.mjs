@@ -10,6 +10,10 @@ const execFileAsync = promisify(execFile);
 const entry = path.resolve(process.argv[2] ?? "dist/cli.js");
 const packageRoot = path.dirname(path.dirname(entry));
 const manifest = JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8"));
+const shrinkwrapPath = path.join(packageRoot, "npm-shrinkwrap.json");
+const shrinkwrap = JSON.parse(await readFile(shrinkwrapPath, "utf8"));
+assert.equal(shrinkwrap.name, manifest.name);
+assert.equal(shrinkwrap.version, manifest.version);
 const bin = typeof manifest.bin === "string" ? manifest.bin : manifest.bin["gemini-notebook-mcp"];
 assert.equal(typeof bin, "string");
 const binPath = path.resolve(packageRoot, bin);
@@ -23,6 +27,10 @@ assert.equal(typeof browserStatus.installed, "boolean");
 assert.equal(typeof browserStatus.hermetic, "boolean");
 assert.equal(typeof browserStatus.patchrightVersion, "string");
 assert.ok(browserStatus.patchrightVersion.length > 0);
+assert.equal(
+  browserStatus.patchrightVersion,
+  shrinkwrap.packages?.["node_modules/patchright"]?.version
+);
 const expectedVersion = process.env.npm_package_version;
 const client = new Client({ name: "package-smoke", version: "1.0.0" });
 const transport = new StdioClientTransport({

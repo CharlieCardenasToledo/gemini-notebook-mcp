@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.5] - 2026-08-09
+
+### Changed
+
+- Published the MCP with `npm-shrinkwrap.json` so CLI installations use the dependency tree validated by the release instead of re-resolving compatible transitive dependency ranges.
+- Added release and package-smoke checks that require the published shrinkwrap and verify the browser runtime against its locked Patchright version.
+
 ## [2.3.3] - 2026-07-31
 
 ### Added

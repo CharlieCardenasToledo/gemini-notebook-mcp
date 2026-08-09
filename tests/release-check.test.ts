@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateReleaseMetadata } from "../scripts/release-check.mjs";
+import { validateReleaseMetadata, validateShrinkwrap } from "../scripts/release-check.mjs";
 
 const validPackage = {
   name: "@charlie.act7/gemini-notebook-mcp",
@@ -10,7 +10,42 @@ const validPackage = {
     type: "git",
     url: "git+https://github.com/CharlieCardenasToledo/gemini-notebook-mcp.git",
   },
+  dependencies: {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "env-paths": "^3.0.0",
+    patchright: "^1.48.2",
+    zod: "^3.22.0",
+  },
 };
+
+const validShrinkwrap = {
+  name: validPackage.name,
+  version: validPackage.version,
+  lockfileVersion: 3,
+  packages: {
+    "": {
+      name: validPackage.name,
+      version: validPackage.version,
+      dependencies: validPackage.dependencies,
+    },
+  },
+};
+
+test("accepts a matching npm shrinkwrap", () => {
+  assert.doesNotThrow(() => validateShrinkwrap(validPackage, validShrinkwrap));
+});
+
+test("rejects invalid npm shrinkwrap metadata", () => {
+  for (const invalid of [
+    { ...validShrinkwrap, version: "2.3.4" },
+    { ...validShrinkwrap, name: "@other/package" },
+    { ...validShrinkwrap, lockfileVersion: 2 },
+    { ...validShrinkwrap, packages: {} },
+    { ...validShrinkwrap, packages: { "": { ...validShrinkwrap.packages[""], dependencies: {} } } },
+  ]) {
+    assert.throws(() => validateShrinkwrap(validPackage, invalid));
+  }
+});
 
 test("accepts a stable release whose tag and repository match", () => {
   assert.deepEqual(

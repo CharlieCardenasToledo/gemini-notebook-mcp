@@ -37,6 +37,11 @@ jobs:
       - run: npm ci
       - run: mkdir -p /tmp/notebooklm-package-smoke
       - run: npm pack --pack-destination /tmp/notebooklm-package-smoke
+      - name: Verify published files in local tarball
+        shell: bash
+        run: |
+          npm pack --dry-run --json > /tmp/notebooklm-package-files.json
+          node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync("/tmp/notebooklm-package-files.json", "utf8")); const files=data[0]?.files?.map(x=>x.path) ?? []; if (!files.includes("npm-shrinkwrap.json") || files.includes("package-lock.json")) process.exit(1)'
       - run: npm install --prefix /tmp/notebooklm-package-smoke /tmp/notebooklm-package-smoke/*.tgz --ignore-scripts --no-audit --no-fund
       - run: npm run package:smoke -- /tmp/notebooklm-package-smoke/node_modules/@charlie.act7/gemini-notebook-mcp/dist/cli.js
       - name: Patchright Chromium provisioning smoke

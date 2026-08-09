@@ -4,6 +4,25 @@ import { pathToFileURL } from "node:url";
 const STABLE_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const PACKAGE_NAME = /^@[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/;
 
+export function validateShrinkwrap(packageJson, shrinkwrap) {
+  if (!shrinkwrap || typeof shrinkwrap !== "object")
+    throw new Error("npm-shrinkwrap.json must contain an object");
+  if (shrinkwrap.name !== packageJson.name)
+    throw new Error("npm-shrinkwrap name does not match package.json");
+  if (shrinkwrap.version !== packageJson.version)
+    throw new Error("npm-shrinkwrap version does not match package.json");
+  if (shrinkwrap.lockfileVersion !== 3) throw new Error("npm-shrinkwrap lockfileVersion must be 3");
+  const root = shrinkwrap.packages?.[""];
+  if (!root) throw new Error("npm-shrinkwrap is missing packages['']");
+  if (root.name !== packageJson.name)
+    throw new Error("npm-shrinkwrap root.name does not match package.json");
+  if (root.version !== packageJson.version)
+    throw new Error("npm-shrinkwrap root.version does not match package.json");
+  if (JSON.stringify(root.dependencies) !== JSON.stringify(packageJson.dependencies)) {
+    throw new Error("npm-shrinkwrap root dependencies do not match package.json");
+  }
+}
+
 function repositorySlug(repository) {
   const raw = typeof repository === "string" ? repository : repository?.url;
   if (typeof raw !== "string" || raw.trim() === "") {
@@ -69,6 +88,10 @@ async function main() {
   const packageJson = JSON.parse(
     await readFile(new URL("../package.json", import.meta.url), "utf8")
   );
+  const shrinkwrap = JSON.parse(
+    await readFile(new URL("../npm-shrinkwrap.json", import.meta.url), "utf8")
+  );
+  validateShrinkwrap(packageJson, shrinkwrap);
   const metadata = validateReleaseMetadata(
     packageJson,
     process.env.RELEASE_TAG,

@@ -100,7 +100,10 @@ jobs:
       - name: Inspect the published tarball
         env:
           PACKAGE_SPEC: ${{ steps.release.outputs.package_spec }}
-        run: npm pack "$PACKAGE_SPEC" --dry-run --json
+        shell: bash
+        run: |
+          npm pack "$PACKAGE_SPEC" --dry-run --json > "$RUNNER_TEMP/published-package-files.json"
+          node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/published-package-files.json", "utf8")); const files=data[0]?.files?.map(x=>x.path) ?? []; if (!files.includes("npm-shrinkwrap.json") || files.includes("package-lock.json")) process.exit(1)'
 
       - name: Install and smoke-test the published package
         env:
