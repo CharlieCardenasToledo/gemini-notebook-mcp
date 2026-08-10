@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.6] - 2026-08-10
+
+### Fixed
+
+- Hardened runtime limit parsing so malformed, unsafe, zero, negative, or unsupported timer values fall back safely instead of creating invalid session or timeout behavior.
+- Serialized browser and session lifecycle mutations across inactive cleanup, explicit closes, notebook closes, global closes, account notebook listing, authentication setup, reauthentication, and destructive data cleanup.
+- Preserved active sessions when the per-owner session limit is reached and revalidated inactivity after queued browser work before garbage-collecting sessions.
+- Reserved Streamable-HTTP session slots during initialization so concurrent clients cannot exceed `NOTEBOOKLM_HTTP_MAX_SESSIONS`.
+- Prevented duplicate cancellation/timeout interruption cleanup and preserved the original cancellation or timeout error when interruption cleanup itself fails.
+- Avoided unnecessary NotebookLM navigation waits before the automatic-login credential flow.
+- Kept `setup_auth` and `re_auth` exclusive for the complete persistent-profile authentication lifecycle.
+- Propagated persistent Chrome context close failures so authentication and cleanup operations cannot continue while the browser profile may still be in use.
+- Kept `cleanup_data` under the session mutation boundary for the entire preview and confirmed deletion operation.
+
+### Changed
+
+- Strengthened packaged-browser smoke coverage and CI checks for the published package layout and browser runtime.
+
 ## [2.3.5] - 2026-08-09
 
 ### Changed
