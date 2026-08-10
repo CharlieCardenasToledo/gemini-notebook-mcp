@@ -300,6 +300,12 @@ export class SessionManager {
    * `href` — no need to click through and read it back from the URL.
    */
   async listAccountNotebooks(signal?: AbortSignal): Promise<AccountNotebookSummary[]> {
+    return await this.runSessionMutationExclusive(() => this.listAccountNotebooksUnlocked(signal));
+  }
+
+  private async listAccountNotebooksUnlocked(
+    signal?: AbortSignal
+  ): Promise<AccountNotebookSummary[]> {
     const context = await this.sharedContextManager.getOrCreateContext();
     const page = await context.newPage();
     const timeout = getRuntimeConfig().browserTimeout;

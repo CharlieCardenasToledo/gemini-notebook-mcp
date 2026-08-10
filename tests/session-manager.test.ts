@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { BrowserSession } from "../src/session/browser-session.js";
 import type { SharedContextManager } from "../src/session/shared-context-manager.js";
+import type { AccountNotebookSummary } from "../src/session/session-manager.js";
 import { SessionManager } from "../src/session/session-manager.js";
 
 interface FakeSession {
@@ -22,6 +23,7 @@ interface SessionManagerInternals {
   maxSessions: number;
   sessionMutationTail: Promise<void>;
   cleanupOldestInactiveSession(ownerId: string): Promise<boolean>;
+  listAccountNotebooksUnlocked(signal?: AbortSignal): Promise<AccountNotebookSummary[]>;
   getOrCreateSessionUnlocked: (
     sessionId?: string,
     notebookUrl?: string,
@@ -517,4 +519,56 @@ test("capacity cleanup selects only expired sessions", async () => {
 
   assert.equal(expiredSession.closeCalls, 1);
   assert.equal(internals.sessions.has("expired-session"), false);
+});
+
+test("account notebook listing blocks concurrent context closing", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  let markListingStarted!: () => void;
+  const listingStarted = new Promise<void>((resolve) => {
+    markListingStarted = resolve;
+  });
+
+  let releaseListing!: () => void;
+  const listingGate = new Promise<void>((resolve) => {
+    releaseListing = resolve;
+  });
+
+  internals.listAccountNotebooksUnlocked = async () => {
+    markListingStarted();
+    await listingGate;
+    return [];
+  };
+
+  let closeContextCalls = 0;
+
+  internals.sharedContextManager = {
+    async closeContext() {
+      closeContextCalls++;
+    },
+  } as unknown as SharedContextManager;
+
+  const listingPromise = manager.listAccountNotebooks();
+
+  await listingStarted;
+
+  const closePromise = manager.closeAllSessions();
+
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+
+  assert.equal(
+    closeContextCalls,
+    0,
+    "context closing must wait until account notebook listing finishes"
+  );
+
+  releaseListing();
+
+  assert.deepEqual(await listingPromise, []);
+
+  await closePromise;
+
+  assert.equal(closeContextCalls, 1);
 });
