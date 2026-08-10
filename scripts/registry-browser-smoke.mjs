@@ -23,7 +23,11 @@ function bounded(value, limit = 4000) {
 async function run(command, args, action) {
   context = { ...context, action };
   try {
-    return await exec(command, args, { windowsHide: true, maxBuffer: 1024 * 1024 });
+    return await exec(command, args, {
+      windowsHide: true,
+      maxBuffer: 1024 * 1024,
+      shell: process.platform === "win32" && command.toLowerCase() === "npm.cmd",
+    });
   } catch (error) {
     error.action = action;
     throw error;
