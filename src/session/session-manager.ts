@@ -175,7 +175,7 @@ export class SessionManager {
     // Check if we need to free up space
     if (this.sessions.size >= this.maxSessions) {
       log.warning(`⚠️  Max sessions (${this.maxSessions}) reached, cleaning up...`);
-      const freed = await this.cleanupOldestSession(ownerId);
+      const freed = await this.cleanupOldestInactiveSession(ownerId);
       if (!freed) {
         throw new Error(
           `Max sessions (${this.maxSessions}) reached and no inactive sessions to clean up`
@@ -434,7 +434,7 @@ export class SessionManager {
   /**
    * Clean up the oldest session to make space
    */
-  private async cleanupOldestSession(ownerId: string): Promise<boolean> {
+  private async cleanupOldestInactiveSession(ownerId: string): Promise<boolean> {
     if (this.sessions.size === 0) {
       return false;
     }
@@ -444,7 +444,11 @@ export class SessionManager {
     let oldestTime = Infinity;
 
     for (const [sessionId, owned] of this.sessions.entries()) {
-      if (owned.ownerId === ownerId && owned.session.createdAt < oldestTime) {
+      if (
+        owned.ownerId === ownerId &&
+        owned.session.isExpired(this.sessionTimeout) &&
+        owned.session.createdAt < oldestTime
+      ) {
         oldestTime = owned.session.createdAt;
         oldestId = sessionId;
       }

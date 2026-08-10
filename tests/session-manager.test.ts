@@ -21,6 +21,7 @@ interface SessionManagerInternals {
   sessionTimeout: number;
   maxSessions: number;
   sessionMutationTail: Promise<void>;
+  cleanupOldestInactiveSession(ownerId: string): Promise<boolean>;
   getOrCreateSessionUnlocked: (
     sessionId?: string,
     notebookUrl?: string,
@@ -447,4 +448,73 @@ test("browser mode change does not deadlock inside the session mutation queue", 
   await assert.rejects(Promise.race([operation, deadlockGuard]), /stop-after-mode-change-close/);
 
   assert.equal(closeContextCalls, 1);
+});
+
+test("max sessions does not evict an active session", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  const ownerId = "test-owner";
+  const activeSessionId = "b658059d-1d26-48fc-b377-dce58b87b40d";
+
+  internals.maxSessions = 1;
+
+  const activeSession = createFakeSession({
+    createdAt: Date.now() - 60_000,
+    lastActivity: Date.now(),
+  });
+
+  internals.sessions.set(activeSessionId, {
+    ownerId,
+    session: activeSession as unknown as BrowserSession,
+  });
+
+  await assert.rejects(
+    manager.getOrCreateSession(
+      "new-session-at-capacity",
+      "https://notebook.google.com/notebook/new-session",
+      undefined,
+      ownerId
+    ),
+    /Max sessions \(1\) reached and no inactive sessions to clean up/
+  );
+
+  assert.equal(activeSession.closeCalls, 0);
+  assert.equal(internals.sessions.has(activeSessionId), true);
+  assert.equal(internals.sessions.size, 1);
+});
+
+test("capacity cleanup selects only expired sessions", async () => {
+  const { internals } = createManagerForTest();
+
+  const ownerId = "test-owner";
+
+  const activeSession = createFakeSession({
+    createdAt: Date.now() - 120_000,
+    lastActivity: Date.now(),
+  });
+
+  const expiredSession = createFakeSession({
+    createdAt: Date.now() - 60_000,
+    lastActivity: Date.now() - 60_000,
+  });
+
+  internals.sessions.set("active-session", {
+    ownerId,
+    session: activeSession as unknown as BrowserSession,
+  });
+
+  internals.sessions.set("expired-session", {
+    ownerId,
+    session: expiredSession as unknown as BrowserSession,
+  });
+
+  const freed = await internals.cleanupOldestInactiveSession(ownerId);
+
+  assert.equal(freed, true);
+
+  assert.equal(activeSession.closeCalls, 0);
+  assert.equal(internals.sessions.has("active-session"), true);
+
+  assert.equal(expiredSession.closeCalls, 1);
+  assert.equal(internals.sessions.has("expired-session"), false);
 });
