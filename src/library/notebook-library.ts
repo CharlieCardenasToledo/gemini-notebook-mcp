@@ -310,6 +310,35 @@ export class NotebookLibrary {
 
     log.info(`📝 Updating notebook: ${hashLogValue(input.id)}`);
 
+    const normalizedUrl = input.url !== undefined ? normalizeNotebookUrl(input.url) : undefined;
+    const googleNotebookId = normalizedUrl
+      ? this.extractGoogleNotebookId(normalizedUrl)
+      : undefined;
+    const previousGoogleNotebookId =
+      notebook.google_notebook_id ?? this.extractGoogleNotebookId(notebook.url);
+    const identityChanged =
+      normalizedUrl !== undefined && googleNotebookId !== previousGoogleNotebookId;
+
+    if (normalizedUrl !== undefined) {
+      const duplicate = this.library.notebooks.find((candidate) => {
+        if (candidate.id === input.id) {
+          return false;
+        }
+
+        const candidateGoogleNotebookId =
+          candidate.google_notebook_id ?? this.extractGoogleNotebookId(candidate.url);
+
+        return (
+          candidate.url === normalizedUrl ||
+          (googleNotebookId !== undefined && candidateGoogleNotebookId === googleNotebookId)
+        );
+      });
+
+      if (duplicate) {
+        throw new Error(`Notebook is already registered: ${duplicate.id}`);
+      }
+    }
+
     const updated = { ...this.library, notebooks: [...this.library.notebooks] };
     const index = updated.notebooks.findIndex((n) => n.id === input.id);
 
@@ -321,7 +350,15 @@ export class NotebookLibrary {
       ...(input.content_types !== undefined && { content_types: input.content_types }),
       ...(input.use_cases !== undefined && { use_cases: input.use_cases }),
       ...(input.tags !== undefined && { tags: input.tags }),
-      ...(input.url !== undefined && { url: normalizeNotebookUrl(input.url) }),
+      ...(normalizedUrl !== undefined && {
+        url: normalizedUrl,
+        google_notebook_id: googleNotebookId,
+      }),
+      ...(identityChanged && {
+        source_count: null,
+        sync_status: "unknown" as const,
+        last_synced_at: undefined,
+      }),
     };
 
     this.saveLibrary(updated);
