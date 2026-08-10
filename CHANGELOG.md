@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.7] - 2026-08-10
+
+### Fixed
+
+- Kept notebook identity consistent when `update_notebook` changes a stored NotebookLM URL: the Google notebook ID now follows the normalized URL, duplicate Google identities are rejected, stale synchronization metadata is invalidated when the underlying notebook changes, and equivalent URL variants preserve valid sync metadata.
+
 ## [2.3.6] - 2026-08-10
 
 ### Fixed
