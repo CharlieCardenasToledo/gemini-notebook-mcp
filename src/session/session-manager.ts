@@ -80,6 +80,23 @@ export class SessionManager {
     return randomUUID();
   }
 
+  private async runSessionMutationExclusive<T>(operation: () => Promise<T>): Promise<T> {
+    let release!: () => void;
+    const previous = this.sessionMutationTail;
+
+    this.sessionMutationTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous;
+
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
   /**
    * Get existing session or create a new one
    *
@@ -93,22 +110,9 @@ export class SessionManager {
     overrideHeadless?: boolean,
     ownerId = LOCAL_OWNER_ID
   ): Promise<BrowserSession> {
-    let release!: () => void;
-    const previous = this.sessionMutationTail;
-    this.sessionMutationTail = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    try {
-      return await this.getOrCreateSessionUnlocked(
-        sessionId,
-        notebookUrl,
-        overrideHeadless,
-        ownerId
-      );
-    } finally {
-      release();
-    }
+    return await this.runSessionMutationExclusive(() =>
+      this.getOrCreateSessionUnlocked(sessionId, notebookUrl, overrideHeadless, ownerId)
+    );
   }
 
   private async getOrCreateSessionUnlocked(
@@ -358,6 +362,10 @@ export class SessionManager {
    * Clean up all inactive sessions
    */
   async cleanupInactiveSessions(): Promise<number> {
+    return await this.runSessionMutationExclusive(() => this.cleanupInactiveSessionsUnlocked());
+  }
+
+  private async cleanupInactiveSessionsUnlocked(): Promise<number> {
     const inactiveSessions: string[] = [];
 
     for (const [sessionId, owned] of this.sessions.entries()) {
@@ -372,9 +380,18 @@ export class SessionManager {
 
     log.warning(`🧹 Cleaning up ${inactiveSessions.length} inactive sessions...`);
 
+    let cleaned = 0;
+
     for (const sessionId of inactiveSessions) {
+      const owned = this.sessions.get(sessionId);
+
+      if (!owned || !owned.session.isExpired(this.sessionTimeout)) {
+        continue;
+      }
+
+      const session = owned.session;
+
       try {
-        const session = this.sessions.get(sessionId)!.session;
         const age = (Date.now() - session.createdAt) / 1000;
         const inactive = (Date.now() - session.lastActivity) / 1000;
 
@@ -384,15 +401,16 @@ export class SessionManager {
 
         await session.close();
         this.sessions.delete(sessionId);
+        cleaned++;
       } catch (error) {
         log.warning(`  ⚠️  Error cleaning up ${hashLogValue(sessionId)}: ${error}`);
       }
     }
 
     log.success(
-      `✅ Cleaned up ${inactiveSessions.length} sessions (${this.sessions.size}/${this.maxSessions} active)`
+      `✅ Cleaned up ${cleaned} sessions (${this.sessions.size}/${this.maxSessions} active)`
     );
-    return inactiveSessions.length;
+    return cleaned;
   }
 
   /**
