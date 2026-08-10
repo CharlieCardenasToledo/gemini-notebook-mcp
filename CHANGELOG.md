@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.8] - 2026-08-10
+
+### Fixed
+
+- Hardened Streamable-HTTP numeric configuration parsing so `NOTEBOOKLM_HTTP_MAX_BODY_BYTES`, `NOTEBOOKLM_HTTP_MAX_SESSIONS`, `NOTEBOOKLM_PORT`, and `--port` accept only complete positive decimal integers instead of silently accepting partially numeric values.
+
+### Changed
+
+- Centralized positive-integer parsing in a shared utility and moved transport option parsing out of the executable entry point for deterministic testing.
+- Removed the redundant legacy HTTP transport parser after the transport parsing logic was extracted to its dedicated module.
+
 ## [2.3.7] - 2026-08-10
 
 ### Fixed
