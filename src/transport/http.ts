@@ -46,11 +46,19 @@ export interface HttpTransportHandle {
 
 const SESSION_HEADER = "mcp-session-id";
 
+interface HttpSessionState {
+  transports: Map<string, StreamableHTTPServerTransport>;
+  pendingInitializations: number;
+}
+
 export async function startHttpTransport(opts: HttpTransportOptions): Promise<HttpTransportHandle> {
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+  const sessionState: HttpSessionState = {
+    transports: new Map(),
+    pendingInitializations: 0,
+  };
 
   const server = createServer((req, res) => {
-    void handleRequest(req, res, transports, opts).catch((err) => {
+    void handleRequest(req, res, sessionState, opts).catch((err) => {
       if (err instanceof HttpRequestError) {
         log.warning(`⚠️  [HTTP] Rejected request: ${err.message}`);
       } else {
@@ -89,14 +97,15 @@ export async function startHttpTransport(opts: HttpTransportOptions): Promise<Ht
   return {
     server,
     close: async () => {
-      for (const t of transports.values()) {
+      for (const t of sessionState.transports.values()) {
         try {
           await t.close();
         } catch {
           /* ignore — best-effort shutdown */
         }
       }
-      transports.clear();
+      sessionState.transports.clear();
+      sessionState.pendingInitializations = 0;
       await new Promise<void>((resolve, reject) =>
         server.close((err) => (err ? reject(err) : resolve()))
       );
@@ -118,7 +127,7 @@ export async function bindMcpServer(
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  transports: Map<string, StreamableHTTPServerTransport>,
+  sessionState: HttpSessionState,
   opts: HttpTransportOptions
 ): Promise<void> {
   applyHttpSecurity(req, res, opts);
@@ -154,7 +163,7 @@ async function handleRequest(
 
   if (req.method === "GET" || req.method === "DELETE") {
     // SSE streams + session termination — both routed by session.
-    const transport = sessionId ? transports.get(sessionId) : undefined;
+    const transport = sessionId ? sessionState.transports.get(sessionId) : undefined;
     if (!transport) {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "unknown session" }));
@@ -173,22 +182,52 @@ async function handleRequest(
   const body = await readJsonBody(req, opts.maxBodyBytes ?? 1024 * 1024);
 
   // Re-use existing session, or initialise a new one when the client says so.
-  let transport = sessionId ? transports.get(sessionId) : undefined;
+  let transport = sessionId ? sessionState.transports.get(sessionId) : undefined;
   if (!transport && isInitializeRequest(body)) {
     const maxSessions = opts.maxSessions ?? 32;
-    if (transports.size >= maxSessions) {
+    if (sessionState.transports.size + sessionState.pendingInitializations >= maxSessions) {
       throw new HttpRequestError(429, `too many active MCP sessions (maximum ${maxSessions})`);
     }
+
+    let initializationReserved = false;
+    const reserveInitialization = () => {
+      sessionState.pendingInitializations++;
+      initializationReserved = true;
+    };
+    const releaseInitialization = () => {
+      if (!initializationReserved) return;
+      initializationReserved = false;
+      sessionState.pendingInitializations--;
+    };
+
+    reserveInitialization();
     transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (sid) => {
-        transports.set(sid, transport!);
+        sessionState.transports.set(sid, transport!);
+        releaseInitialization();
       },
     });
     transport.onclose = () => {
-      if (transport!.sessionId) transports.delete(transport!.sessionId);
+      if (transport!.sessionId) sessionState.transports.delete(transport!.sessionId);
+      releaseInitialization();
     };
-    await opts.connect(transport);
+
+    try {
+      await opts.connect(transport);
+    } catch (error) {
+      releaseInitialization();
+      await transport.close().catch(() => undefined);
+      throw error;
+    }
+
+    try {
+      await transport.handleRequest(req, res, body);
+    } catch (error) {
+      releaseInitialization();
+      throw error;
+    }
+    return;
   }
 
   if (!transport) {
