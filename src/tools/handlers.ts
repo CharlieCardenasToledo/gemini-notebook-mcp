@@ -486,7 +486,8 @@ export class ToolHandlers {
 
     const startTime = Date.now();
 
-    const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
+    const effectiveConfig = applyBrowserOptions(browser_options, show_browser ?? true);
+    const showBrowser = !effectiveConfig.headless;
 
     return await withRuntimeConfig(effectiveConfig, async () => {
       try {
@@ -500,7 +501,7 @@ export class ToolHandlers {
           await sendProgress?.("Opening browser window...", 2, 10);
 
           // Perform setup with progress updates (uses CONFIG internally)
-          return await this.authManager.performSetup(sendProgress, undefined, signal);
+          return await this.authManager.performSetup(sendProgress, showBrowser, signal);
         });
 
         const durationSeconds = (Date.now() - startTime) / 1000;
@@ -573,7 +574,8 @@ export class ToolHandlers {
 
     const startTime = Date.now();
 
-    const effectiveConfig = applyBrowserOptions(browser_options, show_browser);
+    const effectiveConfig = applyBrowserOptions(browser_options, show_browser ?? true);
+    const showBrowser = !effectiveConfig.headless;
 
     return await withRuntimeConfig(effectiveConfig, async () => {
       try {
@@ -592,7 +594,7 @@ export class ToolHandlers {
           // 3. Perform fresh setup
           await sendProgress?.("Starting fresh authentication...", 3, 12);
           log.info("  🌐 Starting fresh authentication setup...");
-          return await this.authManager.performSetup(sendProgress, undefined, signal);
+          return await this.authManager.performSetup(sendProgress, showBrowser, signal);
         });
 
         const durationSeconds = (Date.now() - startTime) / 1000;

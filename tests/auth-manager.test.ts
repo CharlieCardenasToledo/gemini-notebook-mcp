@@ -101,3 +101,29 @@ test("automatic login does not wait for NotebookLM before entering the credentia
     "pre-login NotebookLM checks must not poll for the full auto-login timeout"
   );
 });
+
+test("interactive login navigation uses the request-scoped browser timeout", async () => {
+  const manager = new AuthManager();
+  let navigationTimeout: number | undefined;
+  const page = {
+    context() {
+      return { pages: () => [page] };
+    },
+    isClosed() {
+      return false;
+    },
+    async goto(_url: string, options?: { timeout?: number }) {
+      navigationTimeout = options?.timeout;
+      throw new Error("navigation failed");
+    },
+    url() {
+      return "https://accounts.google.com";
+    },
+  } as unknown as Page;
+
+  const result = await withRuntimeConfig({ ...CONFIG, browserTimeout: 43_210 }, () =>
+    manager.performLogin(page)
+  );
+  assert.equal(navigationTimeout, 43_210);
+  assert.equal(result, false);
+});

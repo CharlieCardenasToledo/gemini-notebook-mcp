@@ -57,12 +57,13 @@ test("re_auth keeps auth reset and setup inside the session mutation boundary", 
       events.push("auth:clear");
     },
 
-    async performSetup() {
+    async performSetup(_progress: unknown, showBrowser: boolean) {
       assert.equal(
         boundaryActive,
         true,
         "interactive setup must remain inside the protected lifecycle"
       );
+      assert.equal(showBrowser, true);
       events.push("auth:setup");
       return true;
     },
@@ -77,4 +78,25 @@ test("re_auth keeps auth reset and setup inside the session mutation boundary", 
   assert.equal(boundaryCalls, 1);
 
   assert.deepEqual(events, ["boundary:start", "auth:clear", "auth:setup", "boundary:end"]);
+});
+
+test("re_auth forwards effective browser visibility to interactive setup", async () => {
+  const seen: boolean[] = [];
+  const sessionManager = {
+    async runWithClosedBrowserContext<T>(operation: () => Promise<T>): Promise<T> {
+      return operation();
+    },
+  } as unknown as SessionManager;
+  const authManager = {
+    async clearAllAuthData() {},
+    async performSetup(_progress: unknown, showBrowser: boolean) {
+      seen.push(showBrowser);
+      return true;
+    },
+  } as unknown as AuthManager;
+  const handlers = createHandlersForReAuth(sessionManager, authManager);
+
+  await handlers.handleReAuth({ show_browser: false });
+  await handlers.handleReAuth({ show_browser: false, browser_options: { headless: false } });
+  assert.deepEqual(seen, [false, true]);
 });

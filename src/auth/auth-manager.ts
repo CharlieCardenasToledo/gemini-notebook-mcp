@@ -292,7 +292,7 @@ export class AuthManager {
       await sendProgress?.("Navigating to Google login...", 3, 10);
 
       // Navigate to Google login (redirects to NotebookLM after auth)
-      await page.goto(NOTEBOOKLM_AUTH_URL, { timeout: 60000 });
+      await page.goto(NOTEBOOKLM_AUTH_URL, { timeout: getRuntimeConfig().browserTimeout });
 
       // Progress: Waiting for login
       await sendProgress?.("Waiting for manual login (up to 10 minutes)...", 4, 10);
@@ -867,19 +867,15 @@ export class AuthManager {
    * - Automatic cookie persistence via Chrome profile
    *
    * @param sendProgress Optional progress callback
-   * @param overrideHeadless Optional override for headless mode (true = visible, false = headless)
-   *                         If not provided, defaults to true (visible) for setup
+   * @param showBrowser Whether to show the browser (true = visible, false = headless).
+   *                    Defaults to true for interactive setup.
    */
   async performSetup(
     sendProgress?: ProgressCallback,
-    overrideHeadless?: boolean,
+    showBrowser = true,
     signal?: AbortSignal
   ): Promise<boolean> {
     const { chromium } = await import("patchright");
-
-    // Determine headless mode: override or default to true (visible for setup)
-    // overrideHeadless contains show_browser value (true = show, false = hide)
-    const shouldShowBrowser = overrideHeadless !== undefined ? overrideHeadless : true;
 
     let context: BrowserContext | undefined;
     let abortListener: (() => void) | undefined;
@@ -893,7 +889,7 @@ export class AuthManager {
       // This ensures session cookies persist correctly. Channel selection +
       // fallback shared with the runtime context manager (issues #13, #19).
       const baseLaunchOptions = {
-        headless: !shouldShowBrowser,
+        headless: !showBrowser,
         viewport: getRuntimeConfig().viewport,
         locale: getRuntimeConfig().browserLocale,
         timezoneId: getRuntimeConfig().browserTimezone,
