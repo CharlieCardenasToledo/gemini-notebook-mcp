@@ -738,58 +738,6 @@ class NotebookLMMCPServer {
   }
 }
 
-function legacyParseTransportOptions(argv: readonly string[]): TransportOptions {
-  const envTransport = process.env.NOTEBOOKLM_TRANSPORT;
-  let kind: "stdio" | "http" =
-    envTransport === "http" || envTransport === "stdio" ? envTransport : "stdio";
-  const envPort = process.env.NOTEBOOKLM_PORT;
-  let port = envPort ? Number(envPort) : 3000;
-  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) port = 3000;
-  let host: string | undefined = process.env.NOTEBOOKLM_HOST;
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--transport") {
-      const next = argv[i + 1];
-      if (next === "http" || next === "stdio") {
-        kind = next;
-        i++;
-      }
-    } else if (arg.startsWith("--transport=")) {
-      const value = arg.slice("--transport=".length);
-      if (value === "http" || value === "stdio") kind = value;
-    } else if (arg === "--port") {
-      const next = argv[i + 1];
-      const parsed = next ? Number(next) : Number.NaN;
-      if (Number.isFinite(parsed)) {
-        port = parsed;
-        i++;
-      }
-    } else if (arg.startsWith("--port=")) {
-      const parsed = Number(arg.slice("--port=".length));
-      if (Number.isFinite(parsed)) port = parsed;
-    } else if (arg === "--host") {
-      const next = argv[i + 1];
-      if (next && !next.startsWith("-")) {
-        host = next;
-        i++;
-      }
-    } else if (arg.startsWith("--host=")) {
-      host = arg.slice("--host=".length);
-    }
-  }
-
-  if (kind === "http") {
-    if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
-      throw new Error(`Invalid HTTP port: ${port}. Expected an integer from 1 to 65535.`);
-    }
-    return { kind, port, host };
-  }
-  return { kind: "stdio" };
-}
-
-void legacyParseTransportOptions;
-
 /**
  * Main entry point
  */
