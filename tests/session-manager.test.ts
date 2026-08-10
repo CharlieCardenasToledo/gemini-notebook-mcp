@@ -14,6 +14,7 @@ interface FakeSession {
   updateActivity(): void;
   isExpired(timeoutSeconds: number): boolean;
   close(): Promise<void>;
+  closeIfExpired(timeoutSeconds: number): Promise<boolean>;
 }
 
 interface SessionManagerInternals {
@@ -65,6 +66,15 @@ function createFakeSession(overrides: Partial<FakeSession> = {}): FakeSession {
 
     async close() {
       this.closeCalls++;
+    },
+
+    async closeIfExpired(timeoutSeconds: number) {
+      if (!this.isExpired(timeoutSeconds)) {
+        return false;
+      }
+
+      await this.close();
+      return true;
     },
 
     ...overrides,
@@ -645,4 +655,68 @@ test("closed browser context operation blocks concurrent session creation", asyn
 
   assert.equal(created, newSession as unknown as BrowserSession);
   assert.equal(creationStarted, true);
+});
+
+test("inactive cleanup keeps a session that becomes active before conditional close", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  const sessionId = "recently-active-during-cleanup";
+  const session = createFakeSession({
+    lastActivity: Date.now() - 60_000,
+
+    async close() {
+      assert.fail("cleanup must not perform an unconditional close");
+    },
+
+    async closeIfExpired() {
+      this.lastActivity = Date.now();
+      return false;
+    },
+  });
+
+  internals.sessions.set(sessionId, {
+    ownerId: "test-owner",
+    session: session as unknown as BrowserSession,
+  });
+
+  const cleaned = await manager.cleanupInactiveSessions();
+
+  assert.equal(cleaned, 0);
+  assert.equal(session.closeCalls, 0);
+  assert.equal(internals.sessions.get(sessionId)?.session, session as unknown as BrowserSession);
+});
+
+test("capacity cleanup skips an expired candidate that becomes active before close", async () => {
+  const { internals } = createManagerForTest();
+  const ownerId = "test-owner";
+
+  const olderSession = createFakeSession({
+    createdAt: Date.now() - 120_000,
+    lastActivity: Date.now() - 60_000,
+    async closeIfExpired() {
+      this.lastActivity = Date.now();
+      return false;
+    },
+  });
+
+  const newerSession = createFakeSession({
+    createdAt: Date.now() - 60_000,
+    lastActivity: Date.now() - 60_000,
+  });
+
+  internals.sessions.set("older-session", {
+    ownerId,
+    session: olderSession as unknown as BrowserSession,
+  });
+  internals.sessions.set("newer-session", {
+    ownerId,
+    session: newerSession as unknown as BrowserSession,
+  });
+
+  const freed = await internals.cleanupOldestInactiveSession(ownerId);
+
+  assert.equal(freed, true);
+  assert.equal(internals.sessions.has("older-session"), true);
+  assert.equal(internals.sessions.has("newer-session"), false);
+  assert.equal(newerSession.closeCalls, 1);
 });

@@ -385,7 +385,11 @@ export class BrowserSession {
     const result = this.operationTail.then(async () => {
       throwIfAborted(signal);
       this.updateActivity();
-      return await operation();
+      try {
+        return await operation();
+      } finally {
+        this.updateActivity();
+      }
     });
     this.operationTail = result.then(
       () => undefined,
@@ -997,6 +1001,24 @@ export class BrowserSession {
    */
   async close(): Promise<void> {
     return await this.runExclusive(() => this.closeUnlocked());
+  }
+
+  async closeIfExpired(timeoutSeconds: number): Promise<boolean> {
+    const result = this.operationTail.then(async () => {
+      if (!this.isExpired(timeoutSeconds)) {
+        return false;
+      }
+
+      await this.closeUnlocked();
+      return true;
+    });
+
+    this.operationTail = result.then(
+      () => undefined,
+      () => undefined
+    );
+
+    return await result;
   }
 
   private async closeUnlocked(): Promise<void> {

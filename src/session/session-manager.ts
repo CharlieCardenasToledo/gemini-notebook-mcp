@@ -423,7 +423,12 @@ export class SessionManager {
           `  🗑️  ${hashLogValue(sessionId)}: age=${age.toFixed(0)}s, inactive=${inactive.toFixed(0)}s, messages=${session.messageCount}`
         );
 
-        await session.close();
+        const closed = await session.closeIfExpired(this.sessionTimeout);
+
+        if (!closed) {
+          continue;
+        }
+
         this.sessions.delete(sessionId);
         cleaned++;
       } catch (error) {
@@ -445,34 +450,30 @@ export class SessionManager {
       return false;
     }
 
-    // Find oldest session
-    let oldestId: string | null = null;
-    let oldestTime = Infinity;
+    const candidates = Array.from(this.sessions.entries())
+      .filter(
+        ([, owned]) => owned.ownerId === ownerId && owned.session.isExpired(this.sessionTimeout)
+      )
+      .sort(([, a], [, b]) => a.session.createdAt - b.session.createdAt);
 
-    for (const [sessionId, owned] of this.sessions.entries()) {
-      if (
-        owned.ownerId === ownerId &&
-        owned.session.isExpired(this.sessionTimeout) &&
-        owned.session.createdAt < oldestTime
-      ) {
-        oldestTime = owned.session.createdAt;
-        oldestId = sessionId;
+    for (const [sessionId, owned] of candidates) {
+      const age = (Date.now() - owned.session.createdAt) / 1000;
+
+      log.warning(
+        `🗑️  Removing oldest session ${hashLogValue(sessionId)} (age: ${age.toFixed(0)}s)`
+      );
+
+      const closed = await owned.session.closeIfExpired(this.sessionTimeout);
+
+      if (!closed) {
+        continue;
       }
+
+      this.sessions.delete(sessionId);
+      return true;
     }
 
-    if (!oldestId) {
-      return false;
-    }
-
-    const oldestSession = this.sessions.get(oldestId)!.session;
-    const age = (Date.now() - oldestSession.createdAt) / 1000;
-
-    log.warning(`🗑️  Removing oldest session ${hashLogValue(oldestId)} (age: ${age.toFixed(0)}s)`);
-
-    await oldestSession.close();
-    this.sessions.delete(oldestId);
-
-    return true;
+    return false;
   }
 
   /**
