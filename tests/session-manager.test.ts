@@ -720,3 +720,29 @@ test("capacity cleanup skips an expired candidate that becomes active before clo
   assert.equal(internals.sessions.has("newer-session"), false);
   assert.equal(newerSession.closeCalls, 1);
 });
+
+test("closed browser context operation aborts when context closing fails", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  let callbackCalls = 0;
+
+  internals.sharedContextManager = {
+    async closeContext() {
+      throw new Error("simulated persistent context close failure");
+    },
+  } as unknown as SharedContextManager;
+
+  await assert.rejects(
+    manager.runWithClosedBrowserContext(async () => {
+      callbackCalls++;
+      return "must-not-run";
+    }),
+    /simulated persistent context close failure/
+  );
+
+  assert.equal(
+    callbackCalls,
+    0,
+    "protected callback must not run unless the browser context was closed"
+  );
+});

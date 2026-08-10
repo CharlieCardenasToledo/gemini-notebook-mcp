@@ -288,22 +288,33 @@ export class SharedContextManager {
    */
   async closeContext(): Promise<void> {
     if (this.globalContext) {
+      const context = this.globalContext;
       log.warning("🛑 Closing persistent context...");
       log.info("  💾 Chrome is saving profile to disk...");
+
       try {
         // Keep state.json current for future isolated profiles. This is a
         // best-effort backup; saveBrowserState logs failures and Chrome still
         // persists its primary profile when the context closes.
-        await this.authManager.saveBrowserState(this.globalContext);
-        await this.globalContext.close();
-        this.globalContext = null;
-        this.contextCreatedAt = null;
-        this.currentHeadlessMode = null;
-        log.success("✅ Persistent context closed");
-        log.success(`  💾 Browser profile saved`);
+        await this.authManager.saveBrowserState(context);
+      } catch (error) {
+        log.warning(`⚠️  Could not refresh browser state before closing: ${error}`);
+      }
+
+      try {
+        await context.close();
       } catch (error) {
         log.error(`❌ Error closing context: ${error}`);
+        throw error;
       }
+
+      if (this.globalContext === context) {
+        this.globalContext = null;
+      }
+      this.contextCreatedAt = null;
+      this.currentHeadlessMode = null;
+      log.success("✅ Persistent context closed");
+      log.success(`  💾 Browser profile saved`);
     }
 
     // Best-effort cleanup on shutdown
