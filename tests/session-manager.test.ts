@@ -746,3 +746,94 @@ test("closed browser context operation aborts when context closing fails", async
     "protected callback must not run unless the browser context was closed"
   );
 });
+
+test("cleanup-safe operation blocks concurrent session creation", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  let closeContextCalls = 0;
+  internals.sharedContextManager = {
+    async closeContext() {
+      closeContextCalls++;
+    },
+  } as unknown as SharedContextManager;
+
+  let markCleanupStarted!: () => void;
+  const cleanupStarted = new Promise<void>((resolve) => {
+    markCleanupStarted = resolve;
+  });
+
+  let releaseCleanup!: () => void;
+  const cleanupGate = new Promise<void>((resolve) => {
+    releaseCleanup = resolve;
+  });
+
+  const cleanupPromise = manager.runWithCleanupSafeContext(async () => {
+    markCleanupStarted();
+    await cleanupGate;
+    return "cleaned";
+  });
+
+  await cleanupStarted;
+  assert.equal(closeContextCalls, 1);
+
+  let creationStarted = false;
+  const newSession = createFakeSession({
+    createdAt: Date.now(),
+    lastActivity: Date.now(),
+  });
+
+  internals.getOrCreateSessionUnlocked = async () => {
+    creationStarted = true;
+    return newSession as unknown as BrowserSession;
+  };
+
+  const creationPromise = manager.getOrCreateSession(
+    "after-cleanup-session",
+    newSession.notebookUrl,
+    undefined,
+    "test-owner"
+  );
+
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+
+  assert.equal(creationStarted, false, "new browser sessions must wait until cleanup finishes");
+
+  releaseCleanup();
+  assert.equal(await cleanupPromise, "cleaned");
+
+  const created = await creationPromise;
+  assert.equal(created, newSession as unknown as BrowserSession);
+  assert.equal(creationStarted, true);
+});
+
+test("cleanup-safe operation rejects instead of closing active sessions", async () => {
+  const { manager, internals } = createManagerForTest();
+  const session = createFakeSession();
+
+  internals.sessions.set("active-cleanup-session", {
+    ownerId: "test-owner",
+    session: session as unknown as BrowserSession,
+  });
+
+  let closeContextCalls = 0;
+  let callbackCalls = 0;
+  internals.sharedContextManager = {
+    async closeContext() {
+      closeContextCalls++;
+    },
+  } as unknown as SharedContextManager;
+
+  await assert.rejects(
+    manager.runWithCleanupSafeContext(async () => {
+      callbackCalls++;
+    }),
+    /cleanup_data requires all browser sessions to be closed before deletion/
+  );
+
+  assert.equal(callbackCalls, 0);
+  assert.equal(closeContextCalls, 0);
+  assert.equal(session.closeCalls, 0);
+  assert.equal(internals.sessions.has("active-cleanup-session"), true);
+});

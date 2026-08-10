@@ -491,6 +491,18 @@ export class SessionManager {
     });
   }
 
+  async runWithCleanupSafeContext<T>(operation: () => Promise<T>): Promise<T> {
+    return await this.runSessionMutationExclusive(async () => {
+      if (this.sessions.size > 0) {
+        throw new Error("cleanup_data requires all browser sessions to be closed before deletion");
+      }
+
+      await this.sharedContextManager.closeContext();
+
+      return await operation();
+    });
+  }
+
   private async closeAllSessionsUnlocked(): Promise<void> {
     if (this.sessions.size === 0) {
       log.warning("🛑 Closing shared context (no active sessions)...");
@@ -530,20 +542,7 @@ export class SessionManager {
    * another client's live session. The caller must close all sessions first.
    */
   async prepareForCleanup(): Promise<void> {
-    let release!: () => void;
-    const previous = this.sessionMutationTail;
-    this.sessionMutationTail = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    try {
-      if (this.sessions.size > 0) {
-        throw new Error("cleanup_data requires all browser sessions to be closed before deletion");
-      }
-      await this.sharedContextManager.closeContext();
-    } finally {
-      release();
-    }
+    await this.runWithCleanupSafeContext(async () => undefined);
   }
 
   /**

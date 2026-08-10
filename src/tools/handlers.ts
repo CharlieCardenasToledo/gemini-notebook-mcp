@@ -979,8 +979,9 @@ export class ToolHandlers {
       const mode = "data";
 
       if (!confirm) {
-        await this.sessionManager.prepareForCleanup();
-        const preview = await this.cleanupManager.createPreview(preserve_library);
+        const preview = await this.sessionManager.runWithCleanupSafeContext(() =>
+          this.cleanupManager.createPreview(preserve_library)
+        );
 
         log.info(
           `  Found ${preview.totalPaths.length} owned items (${this.cleanupManager.formatBytes(preview.totalSizeBytes)})`
@@ -1009,8 +1010,9 @@ export class ToolHandlers {
           };
         }
 
-        await this.sessionManager.prepareForCleanup();
-        const result = await this.cleanupManager.performCleanup(preview_token);
+        const result = await this.sessionManager.runWithCleanupSafeContext(() =>
+          this.cleanupManager.performCleanup(preview_token)
+        );
 
         if (result.success) {
           log.success(
