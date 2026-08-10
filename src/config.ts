@@ -13,6 +13,7 @@ import envPaths from "env-paths";
 import fs from "fs";
 import path from "path";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { parsePositiveInteger as parsePositiveIntegerShared } from "./utils/env-parsing.js";
 
 // Cross-platform data paths (unified without -nodejs suffix)
 // Linux: ~/.local/share/notebooklm-mcp/
@@ -186,17 +187,7 @@ function parsePositiveInteger(
   defaultValue: number,
   maxValue = Number.MAX_SAFE_INTEGER
 ): number {
-  if (value === undefined) return defaultValue;
-
-  const normalized = value.trim();
-  if (!/^\d+$/.test(normalized)) return defaultValue;
-
-  const parsed = Number(normalized);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > maxValue) {
-    return defaultValue;
-  }
-
-  return parsed;
+  return parsePositiveIntegerShared(value, defaultValue, maxValue);
 }
 
 /**

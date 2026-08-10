@@ -47,6 +47,11 @@ import { SettingsManager } from "./utils/settings-manager.js";
 import { CliHandler } from "./utils/cli-handler.js";
 import { CONFIG, ensureDirectories } from "./config.js";
 import { startHttpTransport, type HttpTransportHandle } from "./transport/http.js";
+import {
+  parseHttpEnvironmentOptions,
+  parseTransportOptions,
+  type TransportOptions,
+} from "./transport/options.js";
 import { hashLogValue, log } from "./utils/logger.js";
 import { APP_VERSION } from "./version.js";
 import { validateToolArguments } from "./tools/validation.js";
@@ -701,14 +706,7 @@ class NotebookLMMCPServer {
       this.httpHandle = await startHttpTransport({
         port: options.port,
         host: options.host,
-        authToken: process.env.NOTEBOOKLM_HTTP_AUTH_TOKEN,
-        allowedOrigins: parseCsvEnv(process.env.NOTEBOOKLM_ALLOWED_ORIGINS),
-        allowedHosts: parseCsvEnv(process.env.NOTEBOOKLM_ALLOWED_HOSTS),
-        maxBodyBytes: parsePositiveIntegerEnv(
-          process.env.NOTEBOOKLM_HTTP_MAX_BODY_BYTES,
-          1024 * 1024
-        ),
-        maxSessions: parsePositiveIntegerEnv(process.env.NOTEBOOKLM_HTTP_MAX_SESSIONS, 32),
+        ...parseHttpEnvironmentOptions(),
         connect: async (transport) => {
           const server = this.createProtocolServer();
           try {
@@ -740,29 +738,12 @@ class NotebookLMMCPServer {
   }
 }
 
-type TransportOptions = { kind: "stdio" } | { kind: "http"; port: number; host?: string };
-
-function parseCsvEnv(value: string | undefined): string[] | undefined {
-  if (!value) return undefined;
-  const values = value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return values.length > 0 ? values : undefined;
-}
-
-function parsePositiveIntegerEnv(value: string | undefined, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function parseTransportOptions(argv: readonly string[]): TransportOptions {
+function legacyParseTransportOptions(argv: readonly string[]): TransportOptions {
   const envTransport = process.env.NOTEBOOKLM_TRANSPORT;
   let kind: "stdio" | "http" =
     envTransport === "http" || envTransport === "stdio" ? envTransport : "stdio";
   const envPort = process.env.NOTEBOOKLM_PORT;
-  let port = envPort ? Number.parseInt(envPort, 10) : 3000;
+  let port = envPort ? Number(envPort) : 3000;
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) port = 3000;
   let host: string | undefined = process.env.NOTEBOOKLM_HOST;
 
@@ -779,13 +760,13 @@ function parseTransportOptions(argv: readonly string[]): TransportOptions {
       if (value === "http" || value === "stdio") kind = value;
     } else if (arg === "--port") {
       const next = argv[i + 1];
-      const parsed = next ? Number.parseInt(next, 10) : Number.NaN;
+      const parsed = next ? Number(next) : Number.NaN;
       if (Number.isFinite(parsed)) {
         port = parsed;
         i++;
       }
     } else if (arg.startsWith("--port=")) {
-      const parsed = Number.parseInt(arg.slice("--port=".length), 10);
+      const parsed = Number(arg.slice("--port=".length));
       if (Number.isFinite(parsed)) port = parsed;
     } else if (arg === "--host") {
       const next = argv[i + 1];
@@ -806,6 +787,8 @@ function parseTransportOptions(argv: readonly string[]): TransportOptions {
   }
   return { kind: "stdio" };
 }
+
+void legacyParseTransportOptions;
 
 /**
  * Main entry point
