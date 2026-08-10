@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Published the MCP with `npm-shrinkwrap.json` so CLI installations use the dependency tree validated by the release instead of re-resolving compatible transitive dependency ranges.
 - Added release and package-smoke checks that require the published shrinkwrap and verify the browser runtime against its locked Patchright version.
+- Pinned `@modelcontextprotocol/sdk` to the latest v1 release, `1.30.0`, so the published MCP dependency contract does not float within the v1 range.
 
 ## [2.3.3] - 2026-07-31
 

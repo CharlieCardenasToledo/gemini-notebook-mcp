@@ -11,7 +11,7 @@ const validPackage = {
     url: "git+https://github.com/CharlieCardenasToledo/gemini-notebook-mcp.git",
   },
   dependencies: {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "env-paths": "^3.0.0",
     patchright: "1.56.0",
     zod: "^3.22.0",
