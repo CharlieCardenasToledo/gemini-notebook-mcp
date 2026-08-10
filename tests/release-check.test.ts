@@ -13,7 +13,7 @@ const validPackage = {
   dependencies: {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "env-paths": "^3.0.0",
-    patchright: "^1.48.2",
+    patchright: "1.56.0",
     zod: "^3.22.0",
   },
 };
