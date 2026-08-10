@@ -176,6 +176,15 @@ function parseInteger(value: string | undefined, defaultValue: number): number {
 }
 
 /**
+ * Parse a strictly positive integer from an environment variable.
+ * Invalid, zero, or negative values fall back to the configured default.
+ */
+function parsePositiveInteger(value: string | undefined, defaultValue: number): number {
+  const parsed = parseInteger(value, defaultValue);
+  return parsed > 0 ? parsed : defaultValue;
+}
+
+/**
  * Parse comma-separated array (for env vars)
  */
 function parseArray(value: string | undefined, defaultValue: string[]): string[] {
@@ -209,16 +218,19 @@ function applyEnvOverrides(config: Config): Config {
     // Override with env vars if present
     notebookUrl: process.env.NOTEBOOK_URL || config.notebookUrl,
     headless: parseBoolean(process.env.HEADLESS, config.headless),
-    browserTimeout: parseInteger(process.env.BROWSER_TIMEOUT, config.browserTimeout),
-    answerTimeoutMs: parseInteger(process.env.ANSWER_TIMEOUT_MS, config.answerTimeoutMs),
+    browserTimeout: parsePositiveInteger(process.env.BROWSER_TIMEOUT, config.browserTimeout),
+    answerTimeoutMs: parsePositiveInteger(process.env.ANSWER_TIMEOUT_MS, config.answerTimeoutMs),
     browserLocale: process.env.BROWSER_LOCALE || config.browserLocale,
     browserTimezone: process.env.BROWSER_TIMEZONE || config.browserTimezone,
-    maxSessions: parseInteger(process.env.MAX_SESSIONS, config.maxSessions),
-    sessionTimeout: parseInteger(process.env.SESSION_TIMEOUT, config.sessionTimeout),
+    maxSessions: parsePositiveInteger(process.env.MAX_SESSIONS, config.maxSessions),
+    sessionTimeout: parsePositiveInteger(process.env.SESSION_TIMEOUT, config.sessionTimeout),
     autoLoginEnabled: parseBoolean(process.env.AUTO_LOGIN_ENABLED, config.autoLoginEnabled),
     loginEmail: process.env.LOGIN_EMAIL || config.loginEmail,
     loginPassword: process.env.LOGIN_PASSWORD || config.loginPassword,
-    autoLoginTimeoutMs: parseInteger(process.env.AUTO_LOGIN_TIMEOUT_MS, config.autoLoginTimeoutMs),
+    autoLoginTimeoutMs: parsePositiveInteger(
+      process.env.AUTO_LOGIN_TIMEOUT_MS,
+      config.autoLoginTimeoutMs
+    ),
     stealthEnabled: parseBoolean(process.env.STEALTH_ENABLED, config.stealthEnabled),
     stealthRandomDelays: parseBoolean(
       process.env.STEALTH_RANDOM_DELAYS,
