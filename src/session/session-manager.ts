@@ -483,6 +483,13 @@ export class SessionManager {
     return await this.runSessionMutationExclusive(() => this.closeAllSessionsUnlocked());
   }
 
+  async runWithClosedBrowserContext<T>(operation: () => Promise<T>): Promise<T> {
+    return await this.runSessionMutationExclusive(async () => {
+      await this.closeAllSessionsUnlocked();
+      return await operation();
+    });
+  }
+
   private async closeAllSessionsUnlocked(): Promise<void> {
     if (this.sessions.size === 0) {
       log.warning("🛑 Closing shared context (no active sessions)...");

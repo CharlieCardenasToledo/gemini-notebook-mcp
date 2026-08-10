@@ -578,19 +578,20 @@ export class ToolHandlers {
         // 1. Close all active sessions
         await sendProgress?.("Closing all active sessions...", 1, 12);
         log.info("  🛑 Closing all sessions...");
-        await this.sessionManager.closeAllSessions();
-        log.success("  ✅ All sessions closed");
+        const success = await this.sessionManager.runWithClosedBrowserContext(async () => {
+          log.success("  ✅ All sessions closed");
 
-        // 2. Clear all auth data
-        await sendProgress?.("Clearing authentication data...", 2, 12);
-        log.info("  🗑️  Clearing all auth data...");
-        await this.authManager.clearAllAuthData();
-        log.success("  ✅ Auth data cleared");
+          // 2. Clear all auth data
+          await sendProgress?.("Clearing authentication data...", 2, 12);
+          log.info("  🗑️  Clearing all auth data...");
+          await this.authManager.clearAllAuthData();
+          log.success("  ✅ Auth data cleared");
 
-        // 3. Perform fresh setup
-        await sendProgress?.("Starting fresh authentication...", 3, 12);
-        log.info("  🌐 Starting fresh authentication setup...");
-        const success = await this.authManager.performSetup(sendProgress, undefined, signal);
+          // 3. Perform fresh setup
+          await sendProgress?.("Starting fresh authentication...", 3, 12);
+          log.info("  🌐 Starting fresh authentication setup...");
+          return await this.authManager.performSetup(sendProgress, undefined, signal);
+        });
 
         const durationSeconds = (Date.now() - startTime) / 1000;
 

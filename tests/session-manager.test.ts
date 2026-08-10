@@ -572,3 +572,77 @@ test("account notebook listing blocks concurrent context closing", async () => {
 
   assert.equal(closeContextCalls, 1);
 });
+
+test("closed browser context operation blocks concurrent session creation", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  let closeContextCalls = 0;
+
+  internals.sharedContextManager = {
+    async closeContext() {
+      closeContextCalls++;
+    },
+  } as unknown as SharedContextManager;
+
+  let markOperationStarted!: () => void;
+  const operationStarted = new Promise<void>((resolve) => {
+    markOperationStarted = resolve;
+  });
+
+  let releaseOperation!: () => void;
+  const operationGate = new Promise<void>((resolve) => {
+    releaseOperation = resolve;
+  });
+
+  const exclusiveOperation = manager.runWithClosedBrowserContext(async () => {
+    markOperationStarted();
+    await operationGate;
+    return "complete";
+  });
+
+  await operationStarted;
+
+  assert.equal(
+    closeContextCalls,
+    1,
+    "the shared context must be closed before the protected operation begins"
+  );
+
+  let creationStarted = false;
+
+  const newSession = createFakeSession({
+    createdAt: Date.now(),
+    lastActivity: Date.now(),
+  });
+
+  internals.getOrCreateSessionUnlocked = async () => {
+    creationStarted = true;
+    return newSession as unknown as BrowserSession;
+  };
+
+  const creationPromise = manager.getOrCreateSession(
+    "after-reauth-session",
+    newSession.notebookUrl,
+    undefined,
+    "test-owner"
+  );
+
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+
+  assert.equal(
+    creationStarted,
+    false,
+    "session creation must wait while the closed-context operation is active"
+  );
+
+  releaseOperation();
+
+  assert.equal(await exclusiveOperation, "complete");
+
+  const created = await creationPromise;
+
+  assert.equal(created, newSession as unknown as BrowserSession);
+  assert.equal(creationStarted, true);
+});
