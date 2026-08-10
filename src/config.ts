@@ -28,6 +28,8 @@ const paths = envPaths("notebooklm-mcp", { suffix: "" });
 export const NOTEBOOKLM_AUTH_URL =
   "https://accounts.google.com/v3/signin/identifier?continue=https%3A%2F%2Fnotebook.google.com%2F&flowName=GlifWebSignIn&flowEntry=ServiceLogin";
 
+const MAX_NODE_TIMER_DELAY_MS = 2_147_483_647;
+
 export interface Config {
   // NotebookLM - optional, used for legacy default notebook
   notebookUrl: string;
@@ -177,11 +179,24 @@ function parseInteger(value: string | undefined, defaultValue: number): number {
 
 /**
  * Parse a strictly positive integer from an environment variable.
- * Invalid, zero, or negative values fall back to the configured default.
+ * Reject malformed, unsafe, zero, negative, or over-limit values.
  */
-function parsePositiveInteger(value: string | undefined, defaultValue: number): number {
-  const parsed = parseInteger(value, defaultValue);
-  return parsed > 0 ? parsed : defaultValue;
+function parsePositiveInteger(
+  value: string | undefined,
+  defaultValue: number,
+  maxValue = Number.MAX_SAFE_INTEGER
+): number {
+  if (value === undefined) return defaultValue;
+
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return defaultValue;
+
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > maxValue) {
+    return defaultValue;
+  }
+
+  return parsed;
 }
 
 /**
@@ -218,8 +233,16 @@ function applyEnvOverrides(config: Config): Config {
     // Override with env vars if present
     notebookUrl: process.env.NOTEBOOK_URL || config.notebookUrl,
     headless: parseBoolean(process.env.HEADLESS, config.headless),
-    browserTimeout: parsePositiveInteger(process.env.BROWSER_TIMEOUT, config.browserTimeout),
-    answerTimeoutMs: parsePositiveInteger(process.env.ANSWER_TIMEOUT_MS, config.answerTimeoutMs),
+    browserTimeout: parsePositiveInteger(
+      process.env.BROWSER_TIMEOUT,
+      config.browserTimeout,
+      MAX_NODE_TIMER_DELAY_MS
+    ),
+    answerTimeoutMs: parsePositiveInteger(
+      process.env.ANSWER_TIMEOUT_MS,
+      config.answerTimeoutMs,
+      MAX_NODE_TIMER_DELAY_MS
+    ),
     browserLocale: process.env.BROWSER_LOCALE || config.browserLocale,
     browserTimezone: process.env.BROWSER_TIMEZONE || config.browserTimezone,
     maxSessions: parsePositiveInteger(process.env.MAX_SESSIONS, config.maxSessions),
@@ -229,7 +252,8 @@ function applyEnvOverrides(config: Config): Config {
     loginPassword: process.env.LOGIN_PASSWORD || config.loginPassword,
     autoLoginTimeoutMs: parsePositiveInteger(
       process.env.AUTO_LOGIN_TIMEOUT_MS,
-      config.autoLoginTimeoutMs
+      config.autoLoginTimeoutMs,
+      MAX_NODE_TIMER_DELAY_MS
     ),
     stealthEnabled: parseBoolean(process.env.STEALTH_ENABLED, config.stealthEnabled),
     stealthRandomDelays: parseBoolean(

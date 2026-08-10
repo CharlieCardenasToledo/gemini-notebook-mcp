@@ -63,3 +63,41 @@ test("invalid non-positive environment limits fall back to safe defaults", () =>
     autoLoginTimeoutMs: 120000,
   });
 });
+
+test("malformed and overflowing positive environment limits fall back to safe defaults", () => {
+  const script = `
+    const { CONFIG } = await import("./src/config.ts");
+    console.log(JSON.stringify({
+      browserTimeout: CONFIG.browserTimeout,
+      answerTimeoutMs: CONFIG.answerTimeoutMs,
+      maxSessions: CONFIG.maxSessions,
+      sessionTimeout: CONFIG.sessionTimeout,
+      autoLoginTimeoutMs: CONFIG.autoLoginTimeoutMs
+    }));
+  `;
+
+  const result = spawnSync(process.execPath, ["--import", "tsx", "--eval", script], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      BROWSER_TIMEOUT: "2147483648",
+      ANSWER_TIMEOUT_MS: "600000ms",
+      MAX_SESSIONS: "7garbage",
+      SESSION_TIMEOUT: "3.5",
+      AUTO_LOGIN_TIMEOUT_MS: "999999999999",
+    },
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+
+  const config = JSON.parse(result.stdout.trim());
+
+  assert.deepEqual(config, {
+    browserTimeout: 30000,
+    answerTimeoutMs: 600000,
+    maxSessions: 10,
+    sessionTimeout: 900,
+    autoLoginTimeoutMs: 120000,
+  });
+});
