@@ -413,7 +413,7 @@ export class AuthManager {
 
     // Already on NotebookLM?
     log.info("  🔍 Checking if already authenticated...");
-    if (await this.waitForNotebook(page, getRuntimeConfig().autoLoginTimeoutMs)) {
+    if (this.isNotebookPage(page)) {
       log.success("✅ Already authenticated");
       await this.saveBrowserState(context, page);
       return true;
@@ -425,7 +425,7 @@ export class AuthManager {
     log.info("  🔍 Checking for account chooser...");
     if (await this.handleAccountChooser(page, email)) {
       log.success("  ✅ Account selected from chooser");
-      if (await this.waitForNotebook(page, getRuntimeConfig().autoLoginTimeoutMs)) {
+      if (this.isNotebookPage(page)) {
         log.success("✅ Automatic login successful");
         await this.saveBrowserState(context, page);
         return true;
@@ -435,7 +435,7 @@ export class AuthManager {
     // Email step
     log.info("  📧 Entering email address...");
     if (!(await this.fillIdentifier(page, email))) {
-      if (await this.waitForNotebook(page, getRuntimeConfig().autoLoginTimeoutMs)) {
+      if (this.isNotebookPage(page)) {
         log.success("✅ Automatic login successful");
         await this.saveBrowserState(context, page);
         return true;
@@ -556,32 +556,12 @@ export class AuthManager {
     return false;
   }
 
-  /**
-   * Wait for NotebookLM to load (SIMPLE & RELIABLE)
-   *
-   * Just checks if URL starts with notebooklm.google.com - no complex UI element searching!
-   * Matches the simplified approach used in performLogin().
-   */
-  private async waitForNotebook(page: Page, timeoutMs: number): Promise<boolean> {
-    const endTime = Date.now() + timeoutMs;
-
-    while (Date.now() < endTime) {
-      try {
-        const currentUrl = page.url();
-
-        // Simple check: Are we on NotebookLM?
-        if (isNotebookLmPageUrl(currentUrl)) {
-          log.success("  ✅ NotebookLM URL detected");
-          return true;
-        }
-      } catch {
-        // Ignore errors
-      }
-
-      await page.waitForTimeout(1000);
+  private isNotebookPage(page: Page): boolean {
+    try {
+      return isNotebookLmPageUrl(page.url());
+    } catch {
+      return false;
     }
-
-    return false;
   }
 
   /**

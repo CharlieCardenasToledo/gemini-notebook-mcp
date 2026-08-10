@@ -3,7 +3,9 @@ import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import type { BrowserContext, Page } from "patchright";
 import { AuthManager } from "../src/auth/auth-manager.js";
+import { CONFIG, withRuntimeConfig } from "../src/config.js";
 
 test("saved authentication state does not expire based on file age", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "notebooklm-auth-"));
@@ -43,4 +45,59 @@ test("malformed saved authentication state is rejected", async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("automatic login does not wait for NotebookLM before entering the credential flow", async () => {
+  const manager = new AuthManager();
+
+  let currentUrl = "https://accounts.google.com/v3/signin/identifier";
+  let waitForTimeoutCalls = 0;
+  let identifierCalls = 0;
+
+  const page = {
+    async goto() {
+      return null;
+    },
+    url() {
+      return currentUrl;
+    },
+    async waitForTimeout() {
+      waitForTimeoutCalls++;
+    },
+  } as unknown as Page;
+
+  const internals = manager as unknown as {
+    handleAccountChooser(page: Page, email: string): Promise<boolean>;
+    fillIdentifier(page: Page, email: string): Promise<boolean>;
+    fillPassword(page: Page, password: string): Promise<boolean>;
+    waitForRedirectAfterLogin(page: Page, deadline: number): Promise<boolean>;
+  };
+
+  internals.handleAccountChooser = async () => false;
+
+  internals.fillIdentifier = async () => {
+    identifierCalls++;
+    currentUrl = "https://accounts.google.com/challenge";
+    return false;
+  };
+
+  internals.fillPassword = async () => false;
+  internals.waitForRedirectAfterLogin = async () => false;
+
+  const result = await withRuntimeConfig(
+    {
+      ...CONFIG,
+      autoLoginTimeoutMs: 25,
+    },
+    () =>
+      manager.loginWithCredentials({} as BrowserContext, page, "user@example.com", "test-password")
+  );
+
+  assert.equal(result, false);
+  assert.equal(identifierCalls, 1);
+  assert.equal(
+    waitForTimeoutCalls,
+    0,
+    "pre-login NotebookLM checks must not poll for the full auto-login timeout"
+  );
 });
