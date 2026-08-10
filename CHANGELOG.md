@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.9] - 2026-08-10
+
+### Fixed
+
+- Made `setup_auth` and `re_auth` honor their effective browser visibility options so `show_browser`, `browser_options.show`, and `browser_options.headless` now control whether the interactive authentication browser is visible or headless, while preserving the documented visible-by-default authentication flow.
+- Made interactive authentication navigation honor request-scoped `browser_options.timeout_ms` instead of using a fixed 60-second navigation timeout.
+
+### Changed
+
+- Clarified the interactive authentication setup visibility parameter internally while preserving the exclusive persistent-browser lifecycle used by `setup_auth` and `re_auth`.
+
 ## [2.3.8] - 2026-08-10
 
 ### Fixed
