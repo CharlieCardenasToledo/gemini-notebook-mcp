@@ -59,20 +59,46 @@ function status() {
   };
 }
 
-async function install() {
-  const cli = patchrightCli();
-  await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [cli, "install", "chromium"], {
+export function runPatchrightInstall(
+  cli: string,
+  spawnProcess: typeof spawn = spawn
+): Promise<void> {
+  return new Promise<void>((resolvePromise, reject) => {
+    const child = spawnProcess(process.execPath, [cli, "install", "chromium"], {
       stdio: ["inherit", "pipe", "pipe"],
       env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: "0" },
     });
+    let stderr = "";
     child.stdout?.on("data", (chunk) => process.stderr.write(chunk));
-    child.stderr?.on("data", (chunk) => process.stderr.write(chunk));
-    child.once("error", reject);
-    child.once("exit", (code) =>
-      code === 0 ? resolvePromise() : reject(new Error(`Patchright terminó con código ${code}`))
+    child.stderr?.on("data", (chunk) => {
+      stderr = `${stderr}${String(chunk)}`.slice(-4000);
+      process.stderr.write(chunk);
+    });
+    child.once("error", (error) =>
+      reject(
+        new Error(
+          `No se pudo iniciar Patchright (${process.platform}/${process.arch}, Node ${process.version}): ${error.message}`
+        )
+      )
     );
+    child.once("close", (code, signal) => {
+      if (code === 0) {
+        resolvePromise();
+        return;
+      }
+      const termination = code === null ? `signal ${signal ?? "desconocida"}` : `código ${code}`;
+      reject(
+        new Error(
+          `Patchright terminó anómalamente con ${termination} (${process.platform}/${process.arch}, Node ${process.version}). Último stderr:\n${stderr || "(vacío)"}`
+        )
+      );
+    });
   });
+}
+
+async function install() {
+  const cli = patchrightCli();
+  await runPatchrightInstall(cli);
   const result = status();
   if (!result.installed || !result.executablePath)
     throw new Error("Chromium no quedó instalado en el entorno hermético.");

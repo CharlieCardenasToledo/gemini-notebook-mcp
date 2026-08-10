@@ -1,9 +1,52 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { isPathInside, resolvePatchrightBin } from "../src/browser/browser-cli.js";
+import {
+  isPathInside,
+  resolvePatchrightBin,
+  runPatchrightInstall,
+} from "../src/browser/browser-cli.js";
+
+function fakeChild(
+  close: { code: number | null; signal?: NodeJS.Signals | null } | { error: Error }
+) {
+  const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  setImmediate(() => {
+    if ("error" in close) child.emit("error", close.error);
+    else child.emit("close", close.code, close.signal ?? null);
+  });
+  return child;
+}
+
+test("supervisa códigos de salida y señales de Patchright", async () => {
+  await assert.doesNotReject(() =>
+    runPatchrightInstall("cli.js", (() => fakeChild({ code: 0 })) as never)
+  );
+  await assert.rejects(
+    () => runPatchrightInstall("cli.js", (() => fakeChild({ code: 1 })) as never),
+    /código 1/
+  );
+  await assert.rejects(
+    () => runPatchrightInstall("cli.js", (() => fakeChild({ code: 4294967295 })) as never),
+    /4294967295/
+  );
+  await assert.rejects(
+    () =>
+      runPatchrightInstall("cli.js", (() => fakeChild({ code: null, signal: "SIGTERM" })) as never),
+    /signal SIGTERM/
+  );
+  await assert.rejects(
+    () =>
+      runPatchrightInstall("cli.js", (() =>
+        fakeChild({ error: new Error("spawn denied") })) as never),
+    /spawn denied/
+  );
+});
 
 test("reserva stdout para JSON y redirige la salida de Patchright a stderr", async () => {
   const source = await readFile(new URL("../src/browser/browser-cli.ts", import.meta.url), "utf8");
