@@ -152,3 +152,86 @@ test("inactive cleanup reports only successfully closed sessions", async () => {
   assert.equal(cleaned, 0);
   assert.equal(internals.sessions.has(sessionId), true);
 });
+
+test("explicit close cannot delete a session created by a concurrent mutation", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  const sessionId = "6c5408f8-58e5-4e95-9f5a-e25fe0ed28a2";
+  const ownerId = "test-owner";
+
+  let markCloseStarted!: () => void;
+  const closeStarted = new Promise<void>((resolve) => {
+    markCloseStarted = resolve;
+  });
+
+  let releaseClose!: () => void;
+  const closeGate = new Promise<void>((resolve) => {
+    releaseClose = resolve;
+  });
+
+  const oldSession = createFakeSession({
+    async close() {
+      this.closeCalls++;
+      markCloseStarted();
+      await closeGate;
+    },
+  });
+
+  const newSession = createFakeSession({
+    createdAt: Date.now(),
+    lastActivity: Date.now(),
+  });
+
+  internals.sessions.set(sessionId, {
+    ownerId,
+    session: oldSession as unknown as BrowserSession,
+  });
+
+  const closePromise = manager.closeSession(sessionId, ownerId);
+
+  await closeStarted;
+
+  let replacementStarted = false;
+
+  internals.getOrCreateSessionUnlocked = async () => {
+    replacementStarted = true;
+
+    internals.sessions.set(sessionId, {
+      ownerId,
+      session: newSession as unknown as BrowserSession,
+    });
+
+    return newSession as unknown as BrowserSession;
+  };
+
+  const replacementPromise = manager.getOrCreateSession(
+    sessionId,
+    newSession.notebookUrl,
+    undefined,
+    ownerId
+  );
+
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+
+  assert.equal(
+    replacementStarted,
+    false,
+    "a replacement mutation must wait until the explicit close mutation finishes"
+  );
+
+  releaseClose();
+
+  assert.equal(await closePromise, true);
+
+  const replacement = await replacementPromise;
+
+  assert.equal(replacement, newSession as unknown as BrowserSession);
+  assert.equal(oldSession.closeCalls, 1);
+  assert.equal(
+    internals.sessions.get(sessionId)?.session,
+    newSession as unknown as BrowserSession,
+    "the completed close must not delete the replacement session"
+  );
+});

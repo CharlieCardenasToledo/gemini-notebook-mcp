@@ -224,6 +224,15 @@ export class SessionManager {
    * Close and remove a specific session
    */
   async closeSession(sessionId: string, ownerId = LOCAL_OWNER_ID): Promise<boolean> {
+    return await this.runSessionMutationExclusive(() =>
+      this.closeSessionUnlocked(sessionId, ownerId)
+    );
+  }
+
+  private async closeSessionUnlocked(
+    sessionId: string,
+    ownerId = LOCAL_OWNER_ID
+  ): Promise<boolean> {
     const owned = this.sessions.get(sessionId);
     if (!owned || owned.ownerId !== ownerId) {
       log.warning(`⚠️  Session ${hashLogValue(sessionId)} not found`);
