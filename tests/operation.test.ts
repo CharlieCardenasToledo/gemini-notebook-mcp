@@ -36,3 +36,44 @@ test("operation boundary enforces one total timeout", async () => {
   );
   assert.equal(interrupted, true);
 });
+
+test("operation boundary interrupts only once when cancellation and timeout overlap", async () => {
+  const controller = new AbortController();
+  let interruptCalls = 0;
+
+  let releaseInterrupt!: () => void;
+  const interruptGate = new Promise<void>((resolve) => {
+    releaseInterrupt = resolve;
+  });
+
+  const result = runWithOperationBoundary(
+    "overlap-test",
+    () => new Promise<string>(() => undefined),
+    {
+      signal: controller.signal,
+      timeoutMs: 20,
+      onInterrupt: async () => {
+        interruptCalls++;
+        await interruptGate;
+      },
+    }
+  );
+
+  controller.abort();
+
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 50);
+  });
+
+  assert.equal(
+    interruptCalls,
+    1,
+    "onInterrupt must run only once even if the timeout fires while cancellation cleanup is pending"
+  );
+
+  releaseInterrupt();
+
+  await assert.rejects(result, OperationCancelledError);
+
+  assert.equal(interruptCalls, 1);
+});

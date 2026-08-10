@@ -22,35 +22,50 @@ export async function runWithOperationBoundary<T>(
 
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let abortListener: (() => void) | undefined;
-  const interruptions: Promise<never>[] = [];
+  let rejectInterruption: ((reason?: unknown) => void) | undefined;
+  let interruptionStarted = false;
+
+  const interruption =
+    signal || timeoutMs !== undefined
+      ? new Promise<never>((_resolve, reject) => {
+          rejectInterruption = reject;
+        })
+      : undefined;
+
+  const interrupt = (error: Error): void => {
+    if (interruptionStarted) {
+      return;
+    }
+
+    interruptionStarted = true;
+
+    void Promise.resolve(onInterrupt?.()).finally(() => {
+      rejectInterruption?.(error);
+    });
+  };
 
   if (signal) {
-    interruptions.push(
-      new Promise<never>((_resolve, reject) => {
-        abortListener = () => {
-          void Promise.resolve(onInterrupt?.()).finally(() => {
-            reject(new OperationCancelledError());
-          });
-        };
-        signal.addEventListener("abort", abortListener, { once: true });
-      })
-    );
+    abortListener = () => {
+      interrupt(new OperationCancelledError());
+    };
+
+    signal.addEventListener("abort", abortListener, { once: true });
+
+    if (signal.aborted) {
+      abortListener();
+    }
   }
 
   if (timeoutMs !== undefined) {
-    interruptions.push(
-      new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
-          void Promise.resolve(onInterrupt?.()).finally(() => {
-            reject(new Error(`TIMEOUT: ${operationName} exceeded ${timeoutMs}ms`));
-          });
-        }, timeoutMs);
-      })
-    );
+    timeout = setTimeout(() => {
+      interrupt(new Error(`TIMEOUT: ${operationName} exceeded ${timeoutMs}ms`));
+    }, timeoutMs);
   }
 
   try {
-    return await Promise.race([operation(), ...interruptions]);
+    const operationPromise = operation();
+
+    return await (interruption ? Promise.race([operationPromise, interruption]) : operationPromise);
   } finally {
     if (timeout) clearTimeout(timeout);
     if (signal && abortListener) signal.removeEventListener("abort", abortListener);
