@@ -39,9 +39,16 @@ export async function runWithOperationBoundary<T>(
 
     interruptionStarted = true;
 
-    void Promise.resolve(onInterrupt?.()).finally(() => {
-      rejectInterruption?.(error);
-    });
+    void (async () => {
+      try {
+        await onInterrupt?.();
+      } catch {
+        // Interruption cleanup is best-effort. Preserve the cancellation or
+        // timeout that actually interrupted the operation.
+      } finally {
+        rejectInterruption?.(error);
+      }
+    })();
   };
 
   if (signal) {
