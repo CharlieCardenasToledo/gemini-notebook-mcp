@@ -8,6 +8,7 @@ const root = resolve(process.cwd());
 const temp = join(tmpdir(), `notebooklm-package-browser-${process.pid}`);
 const install = join(temp, "install");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
 rmSync(temp, { recursive: true, force: true });
 mkdirSync(temp, { recursive: true });
 execFileSync(npm, ["pack", "--pack-destination", temp, "--ignore-scripts"], {
