@@ -36,10 +36,12 @@ export const systemTools: Tool[] = [
   {
     name: "setup_auth",
     description:
-      "Open a browser window for first-time Google login. The tool call waits " +
-      "for completion for up to 10 minutes while reporting progress, then " +
-      "persists cookies for future runs. Existing profile " +
-      "data is preserved; use `re_auth` when a clean login is required.\n\n" +
+      "Open a browser window for first-time Google login. Active MCP browser " +
+      "sessions are closed first so the persistent Chrome profile can be used " +
+      "exclusively during authentication. The tool call waits for completion " +
+      "for up to 10 minutes while reporting progress, then persists cookies " +
+      "for future runs. Existing profile data is preserved; use `re_auth` when " +
+      "a clean login is required.\n\n" +
       "When to use:\n" +
       "  • This is the first run and Google requests sign-in\n" +
       "  • Auto-login credentials are not configured\n" +

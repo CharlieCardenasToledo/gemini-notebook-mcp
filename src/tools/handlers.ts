@@ -493,13 +493,15 @@ export class ToolHandlers {
         // Progress: Starting
         await sendProgress?.("Preparing authentication browser...", 1, 10);
 
-        log.info(`  🌐 Opening browser for interactive login...`);
+        const success = await this.sessionManager.runWithClosedBrowserContext(async () => {
+          log.info(`  🌐 Opening browser for interactive login...`);
 
-        // Progress: Opening browser
-        await sendProgress?.("Opening browser window...", 2, 10);
+          // Progress: Opening browser
+          await sendProgress?.("Opening browser window...", 2, 10);
 
-        // Perform setup with progress updates (uses CONFIG internally)
-        const success = await this.authManager.performSetup(sendProgress, undefined, signal);
+          // Perform setup with progress updates (uses CONFIG internally)
+          return await this.authManager.performSetup(sendProgress, undefined, signal);
+        });
 
         const durationSeconds = (Date.now() - startTime) / 1000;
 
