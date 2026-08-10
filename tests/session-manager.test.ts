@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { BrowserSession } from "../src/session/browser-session.js";
+import type { SharedContextManager } from "../src/session/shared-context-manager.js";
 import { SessionManager } from "../src/session/session-manager.js";
 
 interface FakeSession {
@@ -16,6 +17,7 @@ interface FakeSession {
 
 interface SessionManagerInternals {
   sessions: Map<string, { ownerId: string; session: BrowserSession }>;
+  sharedContextManager: SharedContextManager;
   sessionTimeout: number;
   maxSessions: number;
   sessionMutationTail: Promise<void>;
@@ -315,4 +317,134 @@ test("notebook close cannot delete a session created by a concurrent mutation", 
     newSession as unknown as BrowserSession,
     "the notebook close must not delete a later replacement session"
   );
+});
+
+test("close all sessions cannot delete a session created by a concurrent mutation", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  const sessionId = "f1969cf1-e59a-479d-a077-d56f02eb79e0";
+  const ownerId = "test-owner";
+
+  let markCloseStarted!: () => void;
+  const closeStarted = new Promise<void>((resolve) => {
+    markCloseStarted = resolve;
+  });
+
+  let releaseClose!: () => void;
+  const closeGate = new Promise<void>((resolve) => {
+    releaseClose = resolve;
+  });
+
+  const oldSession = createFakeSession({
+    async close() {
+      this.closeCalls++;
+      markCloseStarted();
+      await closeGate;
+    },
+  });
+
+  const newSession = createFakeSession({
+    createdAt: Date.now(),
+    lastActivity: Date.now(),
+  });
+
+  let closeContextCalls = 0;
+
+  internals.sharedContextManager = {
+    async closeContext() {
+      closeContextCalls++;
+    },
+  } as unknown as SharedContextManager;
+
+  internals.sessions.set(sessionId, {
+    ownerId,
+    session: oldSession as unknown as BrowserSession,
+  });
+
+  const closeAllPromise = manager.closeAllSessions();
+
+  await closeStarted;
+
+  let replacementStarted = false;
+
+  internals.getOrCreateSessionUnlocked = async () => {
+    replacementStarted = true;
+
+    internals.sessions.set(sessionId, {
+      ownerId,
+      session: newSession as unknown as BrowserSession,
+    });
+
+    return newSession as unknown as BrowserSession;
+  };
+
+  const replacementPromise = manager.getOrCreateSession(
+    sessionId,
+    newSession.notebookUrl,
+    undefined,
+    ownerId
+  );
+
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+
+  assert.equal(
+    replacementStarted,
+    false,
+    "session creation must wait until closeAllSessions finishes"
+  );
+
+  releaseClose();
+
+  await closeAllPromise;
+
+  const replacement = await replacementPromise;
+
+  assert.equal(replacement, newSession as unknown as BrowserSession);
+  assert.equal(oldSession.closeCalls, 1);
+  assert.equal(closeContextCalls, 1);
+  assert.equal(
+    internals.sessions.get(sessionId)?.session,
+    newSession as unknown as BrowserSession,
+    "closeAllSessions must not delete a session created by the next mutation"
+  );
+});
+
+test("browser mode change does not deadlock inside the session mutation queue", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  let closeContextCalls = 0;
+
+  internals.sharedContextManager = {
+    needsHeadlessModeChange() {
+      return true;
+    },
+    getCurrentHeadlessMode() {
+      return true;
+    },
+    async closeContext() {
+      closeContextCalls++;
+    },
+    async getOrCreateContext() {
+      throw new Error("stop-after-mode-change-close");
+    },
+  } as unknown as SharedContextManager;
+
+  const operation = manager.getOrCreateSession(
+    "mode-change-session",
+    "https://notebook.google.com/notebook/mode-change-test",
+    false,
+    "test-owner"
+  );
+
+  const deadlockGuard = new Promise<never>((_resolve, reject) => {
+    setTimeout(() => {
+      reject(new Error("session mutation deadlocked"));
+    }, 250);
+  });
+
+  await assert.rejects(Promise.race([operation, deadlockGuard]), /stop-after-mode-change-close/);
+
+  assert.equal(closeContextCalls, 1);
 });

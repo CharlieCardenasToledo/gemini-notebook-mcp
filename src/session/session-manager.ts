@@ -149,7 +149,7 @@ export class SessionManager {
           `  Switching from ${currentMode ? "HEADLESS" : "VISIBLE"} to ${overrideHeadless ? "VISIBLE" : "HEADLESS"}`
         );
 
-        await this.closeAllSessions();
+        await this.closeAllSessionsUnlocked();
         log.success(`  ✅ Browser context will be recreated with new mode`);
       }
     }
@@ -470,6 +470,10 @@ export class SessionManager {
    * operations such as re-authentication and browser-mode changes.
    */
   async closeAllSessions(): Promise<void> {
+    return await this.runSessionMutationExclusive(() => this.closeAllSessionsUnlocked());
+  }
+
+  private async closeAllSessionsUnlocked(): Promise<void> {
     if (this.sessions.size === 0) {
       log.warning("🛑 Closing shared context (no active sessions)...");
       await this.sharedContextManager.closeContext();
