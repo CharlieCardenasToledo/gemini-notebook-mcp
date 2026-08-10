@@ -1,0 +1,31 @@
+name: Registry Browser Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published MCP version to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  registry-browser:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: node scripts/registry-browser-smoke.mjs "${{ inputs.version }}"
