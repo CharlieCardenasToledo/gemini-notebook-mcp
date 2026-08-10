@@ -235,3 +235,84 @@ test("explicit close cannot delete a session created by a concurrent mutation", 
     "the completed close must not delete the replacement session"
   );
 });
+
+test("notebook close cannot delete a session created by a concurrent mutation", async () => {
+  const { manager, internals } = createManagerForTest();
+
+  const sessionId = "a9be513c-061a-47a8-b776-d92966e5a550";
+  const ownerId = "test-owner";
+  const notebookUrl = "https://notebook.google.com/notebook/shared-notebook";
+
+  let markCloseStarted!: () => void;
+  const closeStarted = new Promise<void>((resolve) => {
+    markCloseStarted = resolve;
+  });
+
+  let releaseClose!: () => void;
+  const closeGate = new Promise<void>((resolve) => {
+    releaseClose = resolve;
+  });
+
+  const oldSession = createFakeSession({
+    notebookUrl,
+    async close() {
+      this.closeCalls++;
+      markCloseStarted();
+      await closeGate;
+    },
+  });
+
+  const newSession = createFakeSession({
+    notebookUrl,
+    createdAt: Date.now(),
+    lastActivity: Date.now(),
+  });
+
+  internals.sessions.set(sessionId, {
+    ownerId,
+    session: oldSession as unknown as BrowserSession,
+  });
+
+  const closePromise = manager.closeSessionsForNotebook(notebookUrl, ownerId);
+
+  await closeStarted;
+
+  let replacementStarted = false;
+
+  internals.getOrCreateSessionUnlocked = async () => {
+    replacementStarted = true;
+
+    internals.sessions.set(sessionId, {
+      ownerId,
+      session: newSession as unknown as BrowserSession,
+    });
+
+    return newSession as unknown as BrowserSession;
+  };
+
+  const replacementPromise = manager.getOrCreateSession(sessionId, notebookUrl, undefined, ownerId);
+
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+
+  assert.equal(
+    replacementStarted,
+    false,
+    "a replacement mutation must wait until notebook session closing finishes"
+  );
+
+  releaseClose();
+
+  assert.equal(await closePromise, 1);
+
+  const replacement = await replacementPromise;
+
+  assert.equal(replacement, newSession as unknown as BrowserSession);
+  assert.equal(oldSession.closeCalls, 1);
+  assert.equal(
+    internals.sessions.get(sessionId)?.session,
+    newSession as unknown as BrowserSession,
+    "the notebook close must not delete a later replacement session"
+  );
+});

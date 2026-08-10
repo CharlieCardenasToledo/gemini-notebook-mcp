@@ -253,6 +253,15 @@ export class SessionManager {
    * Close all sessions that are using the provided notebook URL
    */
   async closeSessionsForNotebook(url: string, ownerId = LOCAL_OWNER_ID): Promise<number> {
+    return await this.runSessionMutationExclusive(() =>
+      this.closeSessionsForNotebookUnlocked(url, ownerId)
+    );
+  }
+
+  private async closeSessionsForNotebookUnlocked(
+    url: string,
+    ownerId = LOCAL_OWNER_ID
+  ): Promise<number> {
     let closed = 0;
 
     for (const [sessionId, owned] of Array.from(this.sessions.entries())) {
