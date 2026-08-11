@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.10] - 2026-08-10
+
+### Fixed
+
+- Publish a production-only npm shrinkwrap so application consumers can use `npm ci --omit=dev` without materializing development-only platform packages such as esbuild binaries for unrelated operating systems.
+
+### Changed
+
+- Preserve the full development shrinkwrap in the repository while generating and restoring the production shrinkwrap during package lifecycle hooks.
+- Exercise the packaged MCP through `package-lock-only` and `npm ci --omit=dev` before browser provisioning.
+
 ## [2.3.9] - 2026-08-10
 
 ### Fixed

@@ -3,7 +3,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "2.3.9",
+  "version": "2.3.10",
   "description": "MCP server for Google Gemini Notebook (formerly NotebookLM) — chat, source ingestion, audio overviews, citations, stdio + Streamable-HTTP transports.",
   "type": "module",
   "bin": {
@@ -14,6 +14,8 @@
     "watch": "tsc --watch",
     "dev": "tsx watch src/index.ts",
     "prepare": "npm run build",
+    "prepack": "node scripts/package-shrinkwrap.mjs prepare",
+    "postpack": "node scripts/package-shrinkwrap.mjs restore",
     "test": "tsx --test tests/**/*.test.ts",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -11,24 +11,37 @@ const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
 rmSync(temp, { recursive: true, force: true });
 mkdirSync(temp, { recursive: true });
-execFileSync(npm, ["pack", "--pack-destination", temp, "--ignore-scripts"], {
+execFileSync(npm, ["pack", "--pack-destination", temp], {
   cwd: root,
   stdio: "inherit",
   shell: process.platform === "win32",
 });
 const archive = readdirSync(temp).find((name) => name.endsWith(".tgz"));
 assert.ok(archive, "npm pack no produjo un tarball");
+mkdirSync(install, { recursive: true });
+writeFileSync(
+  join(install, "package.json"),
+  JSON.stringify({
+    private: true,
+    dependencies: { "@charlie.act7/gemini-notebook-mcp": join(temp, archive) },
+  })
+);
 execFileSync(
   npm,
   [
     "install",
+    "--package-lock-only",
     "--prefix",
     install,
-    join(temp, archive),
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
   ],
+  { stdio: "inherit", shell: process.platform === "win32" }
+);
+execFileSync(
+  npm,
+  ["ci", "--omit=dev", "--prefix", install, "--ignore-scripts", "--no-audit", "--no-fund"],
   { stdio: "inherit", shell: process.platform === "win32" }
 );
 const packageRoot = join(install, "node_modules", "@charlie.act7", "gemini-notebook-mcp");
