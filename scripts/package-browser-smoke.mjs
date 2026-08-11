@@ -28,22 +28,14 @@ writeFileSync(
 );
 execFileSync(
   npm,
-  [
-    "install",
-    "--package-lock-only",
-    "--prefix",
-    install,
-    "--ignore-scripts",
-    "--no-audit",
-    "--no-fund",
-  ],
-  { stdio: "inherit", shell: process.platform === "win32" }
+  ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"],
+  { cwd: install, stdio: "inherit", shell: process.platform === "win32" }
 );
-execFileSync(
-  npm,
-  ["ci", "--omit=dev", "--prefix", install, "--ignore-scripts", "--no-audit", "--no-fund"],
-  { stdio: "inherit", shell: process.platform === "win32" }
-);
+execFileSync(npm, ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], {
+  cwd: install,
+  stdio: "inherit",
+  shell: process.platform === "win32",
+});
 const packageRoot = join(install, "node_modules", "@charlie.act7", "gemini-notebook-mcp");
 const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
 const bin = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.["gemini-notebook-mcp"];
