@@ -63,7 +63,7 @@
     "@modelcontextprotocol/sdk": "1.30.0",
     "env-paths": "^3.0.0",
     "patchright": "1.56.0",
-    "zod": "^3.22.0"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
