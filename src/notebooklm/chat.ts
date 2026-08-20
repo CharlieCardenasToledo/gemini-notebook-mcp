@@ -380,6 +380,22 @@ export async function snapshotPriorAnswers(page: Page): Promise<string[]> {
  * throws on UI hiccups — failure surfaces as `null` so the caller can decide
  * how to recover (retry vs. report error to the user).
  */
+/**
+ * Dismisses a stray dialog/overlay (promo, consent, share modal) that can pop
+ * up mid-generation and silently eat keystrokes/clicks. Previously only
+ * checked once before a call started, so an overlay that appeared while an
+ * answer was still generating ran the poll loop out to the full timeout
+ * ("session stuck on a browser overlay" symptom). Cheap non-waiting check —
+ * safe to call on every health-check tick of the poll loop below.
+ */
+export async function dismissUnexpectedOverlay(page: Page): Promise<void> {
+  const dialog = page.locator(Selectors.chat.dialog).first();
+  if (await dialog.isVisible({ timeout: 250 }).catch(() => false)) {
+    await page.keyboard.press("Escape").catch(() => undefined);
+    await page.waitForTimeout(150).catch(() => undefined);
+  }
+}
+
 export async function waitForStableAnswer(
   page: Page,
   options: AskOptions = {}
@@ -409,9 +425,14 @@ export async function waitForStableAnswer(
     pollCount++;
 
     // Every 10th poll we make sure the renderer still answers — bounded so a
-    // wedged tab can't keep us spinning until the deadline (issue #16).
-    if (pollCount % 10 === 0 && !(await pageIsAlive(page))) {
-      throw new Error("Browser page unresponsive: health check timed out");
+    // wedged tab can't keep us spinning until the deadline (issue #16). Same
+    // cadence also clears an overlay that popped up mid-generation instead
+    // of only checking once before the call started.
+    if (pollCount % 10 === 0) {
+      if (!(await pageIsAlive(page))) {
+        throw new Error("Browser page unresponsive: health check timed out");
+      }
+      await dismissUnexpectedOverlay(page);
     }
 
     let state: TurnAnswerState = {

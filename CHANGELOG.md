@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.11] - 2026-08-20
+
+### Fixed
+
+- Stopped a failed or timed-out `ask_question` call from refreshing session activity in its `finally` block, so a repeatedly failing session ages toward eviction instead of looking freshly used on every failure.
+- Made session cleanup (`SessionManager`) evict a session immediately once its browser page is gone (crashed or torn down by a timeout), instead of waiting out the full `sessionTimeout` window. Previously, sessions that died mid-query during a retry storm counted against `maxSessions` for up to the full timeout, accumulating as "ghost sessions" that blocked new session creation.
+- Re-checked for a stray dialog/overlay (promo, consent, share modal) every 10th poll while waiting for an answer, not only once before the call started. An overlay appearing mid-generation previously ran the poll loop out to the full timeout instead of being dismissed.
+
 ## [2.3.10] - 2026-08-10
 
 ### Fixed

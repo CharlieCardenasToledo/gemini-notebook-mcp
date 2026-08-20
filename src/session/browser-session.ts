@@ -17,7 +17,11 @@ import type { BrowserContext, Page } from "patchright";
 import type { SharedContextManager } from "./shared-context-manager.js";
 import type { AuthManager } from "../auth/auth-manager.js";
 import { humanType, randomDelay, randomInt } from "../utils/stealth-utils.js";
-import { waitForStableAnswer, snapshotPriorAnswers } from "../notebooklm/chat.js";
+import {
+  waitForStableAnswer,
+  snapshotPriorAnswers,
+  dismissUnexpectedOverlay,
+} from "../notebooklm/chat.js";
 import { Selectors, findVisibleSelector, joinAlt } from "../notebooklm/selectors.js";
 import {
   extractCitations as extractCitationsFromPage,
@@ -385,11 +389,13 @@ export class BrowserSession {
     const result = this.operationTail.then(async () => {
       throwIfAborted(signal);
       this.updateActivity();
-      try {
-        return await operation();
-      } finally {
-        this.updateActivity();
-      }
+      // Only refresh activity again on success. If operation() throws (e.g.
+      // it timed out after minutes of retries), keep lastActivity at the
+      // pre-call timestamp so a failing session ages toward eviction instead
+      // of looking freshly used every time it fails.
+      const value = await operation();
+      this.updateActivity();
+      return value;
     });
     this.operationTail = result.then(
       () => undefined,
@@ -662,7 +668,7 @@ export class BrowserSession {
               }
             }
 
-            await this.dismissUnexpectedOverlays();
+            await dismissUnexpectedOverlay(this.page);
             if (!this.page) {
               throw new Error("BROWSER_CRASHED: NotebookLM page is unavailable");
             }
@@ -698,15 +704,6 @@ export class BrowserSession {
       }
     }
     throw new Error(`${operationName} failed after browser recovery`);
-  }
-
-  private async dismissUnexpectedOverlays(): Promise<void> {
-    if (!this.page) return;
-    const dialog = this.page.locator(Selectors.chat.dialog).first();
-    if (await dialog.isVisible({ timeout: 250 }).catch(() => false)) {
-      await this.page.keyboard.press("Escape").catch(() => undefined);
-      await this.page.waitForTimeout(150).catch(() => undefined);
-    }
   }
 
   /**
@@ -1005,7 +1002,7 @@ export class BrowserSession {
 
   async closeIfExpired(timeoutSeconds: number): Promise<boolean> {
     const result = this.operationTail.then(async () => {
-      if (!this.isExpired(timeoutSeconds)) {
+      if (!this.isEvictable(timeoutSeconds)) {
         return false;
       }
 
@@ -1051,6 +1048,19 @@ export class BrowserSession {
   isExpired(timeoutSeconds: number): boolean {
     const inactiveSeconds = (Date.now() - this.lastActivity) / 1000;
     return inactiveSeconds > timeoutSeconds;
+  }
+
+  /**
+   * Whether this session can be evicted right now: either it timed out from
+   * inactivity, or its browser page is already gone (a prior operation
+   * crashed/timed out and tore it down via onInterrupt). A dead session with
+   * no page left is useless but still counts against maxSessions until the
+   * full sessionTimeout elapses if we only check isExpired() — that's what
+   * piles up as "ghost sessions" during a retry storm, so dead sessions are
+   * evictable immediately regardless of how recently they were touched.
+   */
+  isEvictable(timeoutSeconds: number): boolean {
+    return !this.isInitialized() || this.isExpired(timeoutSeconds);
   }
 
   /**

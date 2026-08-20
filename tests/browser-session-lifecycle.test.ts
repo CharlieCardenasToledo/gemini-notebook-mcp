@@ -16,12 +16,22 @@ function createSession(): BrowserSession {
 test("conditional expiry close rechecks activity after queued browser work", async () => {
   const session = createSession();
   const internals = session as unknown as {
+    initialized: boolean;
+    page: unknown;
     withAuthenticatedNotebookPage<T>(
       operationName: string,
       operation: (page: never) => Promise<T>,
       options?: unknown
     ): Promise<T>;
   };
+  // This scenario simulates a session with an in-flight operation, which in
+  // real usage only happens once init() already succeeded (it runs inside
+  // the same queued call before the mocked operation below). isEvictable()
+  // treats "never initialized" (or a null page) as always evictable, so mark
+  // both here to match that real precondition instead of the constructor
+  // default of an unborn session.
+  internals.initialized = true;
+  internals.page = {};
 
   let markOperationStarted!: () => void;
   const operationStarted = new Promise<void>((resolve) => {

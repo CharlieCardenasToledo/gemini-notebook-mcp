@@ -393,7 +393,7 @@ export class SessionManager {
     const inactiveSessions: string[] = [];
 
     for (const [sessionId, owned] of this.sessions.entries()) {
-      if (owned.session.isExpired(this.sessionTimeout)) {
+      if (owned.session.isEvictable(this.sessionTimeout)) {
         inactiveSessions.push(sessionId);
       }
     }
@@ -409,7 +409,7 @@ export class SessionManager {
     for (const sessionId of inactiveSessions) {
       const owned = this.sessions.get(sessionId);
 
-      if (!owned || !owned.session.isExpired(this.sessionTimeout)) {
+      if (!owned || !owned.session.isEvictable(this.sessionTimeout)) {
         continue;
       }
 
@@ -452,7 +452,7 @@ export class SessionManager {
 
     const candidates = Array.from(this.sessions.entries())
       .filter(
-        ([, owned]) => owned.ownerId === ownerId && owned.session.isExpired(this.sessionTimeout)
+        ([, owned]) => owned.ownerId === ownerId && owned.session.isEvictable(this.sessionTimeout)
       )
       .sort(([, a], [, b]) => a.session.createdAt - b.session.createdAt);
 

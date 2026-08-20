@@ -13,6 +13,7 @@ interface FakeSession {
   closeCalls: number;
   updateActivity(): void;
   isExpired(timeoutSeconds: number): boolean;
+  isEvictable(timeoutSeconds: number): boolean;
   close(): Promise<void>;
   closeIfExpired(timeoutSeconds: number): Promise<boolean>;
 }
@@ -62,6 +63,10 @@ function createFakeSession(overrides: Partial<FakeSession> = {}): FakeSession {
 
     isExpired(timeoutSeconds: number) {
       return (Date.now() - this.lastActivity) / 1000 > timeoutSeconds;
+    },
+
+    isEvictable(timeoutSeconds: number) {
+      return this.isExpired(timeoutSeconds);
     },
 
     async close() {
