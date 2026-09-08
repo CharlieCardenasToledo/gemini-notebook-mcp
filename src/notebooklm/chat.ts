@@ -193,9 +193,25 @@ export function isThinkingStep(text: string): boolean {
   return (gerundHeader && THINKING_FIRST_PERSON.test(trimmed)) || THINKING_OPENER.test(firstLine);
 }
 
+/**
+ * Loading indicators are short status lines ("Parsing the data…", "Thinking").
+ * Real grounded answers run well past this length, and may legitimately
+ * contain words such as "loading", "thinking" or "searching" — matching the
+ * snippets against a long text made every such answer look like a placeholder
+ * on every poll until the timeout.
+ */
+const PLACEHOLDER_MAX_LENGTH = 160;
+
 export function isPlaceholder(text: string): boolean {
-  const lower = text.toLowerCase();
-  if (PLACEHOLDER_SNIPPETS.some((s) => lower.includes(s))) return true;
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+  // Status lines never end in sentence punctuation ("Thinking", "Parsing the
+  // data…"); a short sentence that does is an answer, not a placeholder.
+  const looksLikeStatusLine =
+    trimmed.length <= PLACEHOLDER_MAX_LENGTH && !/[.!?\]）)。！？]$/.test(trimmed);
+  if (looksLikeStatusLine && PLACEHOLDER_SNIPPETS.some((s) => lower.includes(s))) {
+    return true;
+  }
   if (isThinkingStep(text)) return true;
   // Short text ending with "..." is almost certainly a loading indicator;
   // real responses run well past 50 chars.
@@ -478,8 +494,11 @@ export async function waitForStableAnswer(
       if (!isEcho && !isPrior) {
         // Loading placeholders ("Parsing the data…", "Thinking…", …) are
         // stable while Gemini is still working — the old code locked on to
-        // them and returned them as the final answer. Filter them out.
-        if (isPlaceholder(candidate)) {
+        // them and returned them as the final answer. Filter them out — but
+        // never for a card the UI has already marked complete (action row
+        // rendered, no stop button): that text is the final answer whatever
+        // words it happens to contain.
+        if (!state.complete && isPlaceholder(candidate)) {
           stableStreak = 0;
           lastSeen = null;
           await safeSleep(page, Math.min(pollIntervalMs, 400));
@@ -717,6 +736,9 @@ async function readFormattedAnswer(textElement: ReturnType<Page["locator"]>): Pr
  * Only isolated lines are removed — never inline content — so legitimate
  * answer prose with the same words ("more horizontal") is not touched.
  */
+// Verified against the EN UI (2026-09); add other locales' labels as they are confirmed.
+const THOUGHTS_PANEL_LABELS = new Set(["thoughts"]);
+
 export function sanitizeAnswer(text: string): string {
   const lines = text
     .replace(/\r/g, "")
@@ -733,6 +755,10 @@ export function sanitizeAnswer(text: string): string {
     }
 
     if (Selectors.uiControlLabels.has(line)) continue;
+
+    // Gemini renders a collapsed reasoning panel labelled "Thoughts" inside
+    // the answer card, above the real answer. Drop the label line.
+    if (THOUGHTS_PANEL_LABELS.has(line.toLowerCase())) continue;
 
     // Drop lone digits or punctuation flanking a UI-control label
     // (typical citation-marker leak: ["1", "more_vert"]).
