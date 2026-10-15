@@ -104,3 +104,28 @@ test("sanitizes UI controls while preserving paragraph spacing", () => {
     "Primer párrafo.\n\nSegundo párrafo.\n\n- Elemento"
   );
 });
+
+test("does not mistake a long grounded answer for a loading placeholder because of an incidental word", () => {
+  // Regression: PLACEHOLDER_SNIPPETS were substring-matched against the whole
+  // answer, so any final answer containing "loading", "thinking", "searching"…
+  // was discarded on every poll until the timeout.
+  const answers = [
+    "To safely return to running after a knee injury, protocols recommend a phased rehabilitation program. During gait retraining, runners are advised to widen their step width to minimise peak knee flexion and joint loading [5].",
+    "The sources describe design thinking as an iterative, user-centred method that alternates between exploring problems and prototyping solutions in short cycles.",
+    "Searching for a job while employed is covered in chapter 3, which recommends updating your profile quietly and scheduling interviews outside working hours.",
+  ];
+  for (const answer of answers) {
+    assert.equal(isPlaceholder(answer), false, answer);
+  }
+  // Genuine short status lines are still recognised.
+  assert.equal(isPlaceholder("Parsing the data…"), true);
+  assert.equal(isPlaceholder("Thinking"), true);
+  assert.equal(isPlaceholder("Searching your docs..."), true);
+});
+
+test("strips the collapsed Gemini 'Thoughts' panel label from answers", () => {
+  assert.equal(
+    sanitizeAnswer("Thoughts\nexpand_more\nThe sources recommend a phased return to running [1]."),
+    "The sources recommend a phased return to running [1]."
+  );
+});
