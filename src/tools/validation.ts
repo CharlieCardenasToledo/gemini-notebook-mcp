@@ -88,6 +88,8 @@ const schemas: Record<string, z.ZodType<Record<string, unknown>>> = {
       question: boundedString(50_000),
       ...notebookTarget,
       source_format: z.enum(["none", "inline", "footnotes", "json"]).optional(),
+      clean: z.boolean().optional(),
+      max_length: z.number().int().min(100).max(100_000).optional(),
       show_browser: z.boolean().optional(),
       browser_options: browserOptionsSchema,
     })

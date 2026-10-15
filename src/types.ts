@@ -26,6 +26,9 @@ export interface AskQuestionResult {
   answer?: string;
   error?: string;
   notebook_url: string;
+  /** Library notebook used, when resolved from the library or the active notebook. */
+  notebook_id?: string;
+  notebook_name?: string;
   session_id?: string;
   session_info?: {
     age_seconds: number;

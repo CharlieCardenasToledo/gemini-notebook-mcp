@@ -59,6 +59,18 @@ export const askQuestionTool: Tool = {
           "process citations programmatically. Use `footnotes`/`inline` when " +
           "showing the answer to a human reader.",
       },
+      clean: {
+        type: "boolean",
+        description:
+          'Strip the leading "Thoughts" prefix, the closing invitation ("Would you like…?") ' +
+          "and emojis from the answer (default: false).",
+      },
+      max_length: {
+        type: "number",
+        description:
+          "Truncate the returned answer to this many characters (100–100000). " +
+          "Short single-claim questions are also the best way to avoid timeouts.",
+      },
       show_browser: {
         type: "boolean",
         description:

@@ -293,6 +293,8 @@ class NotebookLMMCPServer {
                 notebook_url?: string;
                 show_browser?: boolean;
                 source_format?: "none" | "inline" | "footnotes" | "json";
+                clean?: boolean;
+                max_length?: number;
               },
               sendProgress,
               extra.signal

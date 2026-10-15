@@ -49,10 +49,50 @@ function followUpReminderEnabled(): boolean {
   return lower === "true" || lower === "1" || lower === "yes";
 }
 
+function isAnswerTimeout(error: unknown): error is Error {
+  return error instanceof Error && /timeout waiting for response/i.test(error.message);
+}
+
+const EMOJI_PATTERN = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu;
+const TRAILING_INVITATION =
+  /\n+[^\n]*(?:¿(?:te|le)\s+gustar[ií]a|¿quieres|¿deseas|would you like|do you want|let me know|¿necesitas)[^\n]*\s*$/i;
+
+/** Remove the "Thoughts" prefix, the closing invitation and emojis. */
+export function cleanAnswer(text: string): string {
+  const withoutPrefix = text.replace(/^\s*Thoughts?\s*\n+/i, "");
+  const withoutInvitation = withoutPrefix.replace(TRAILING_INVITATION, "");
+  return withoutInvitation
+    .replace(EMOJI_PATTERN, "")
+    .replace(/[ \t]+$/gm, "")
+    .trim();
+}
+
+/** Cut an answer to `max` characters, preferring a sentence boundary. */
+export function truncateAnswer(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const slice = text.slice(0, max);
+  const boundary = Math.max(slice.lastIndexOf(". "), slice.lastIndexOf("\n"));
+  return `${boundary > max * 0.6 ? slice.slice(0, boundary + 1) : slice.trimEnd()}…`;
+}
+
 /**
  * MCP Tool Handlers
  */
 export class ToolHandlers {
+  private notebookQueues = new Map<string, Promise<unknown>>();
+
+  private async runInNotebookQueue<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.notebookQueues.get(key) ?? Promise.resolve();
+    const run = previous.then(operation, operation);
+    const tail = run.catch(() => undefined);
+    this.notebookQueues.set(key, tail);
+    try {
+      return await run;
+    } finally {
+      if (this.notebookQueues.get(key) === tail) this.notebookQueues.delete(key);
+    }
+  }
+
   private sessionManager: SessionManager;
   private authManager: AuthManager;
   private library: NotebookLibrary;
@@ -87,11 +127,15 @@ export class ToolHandlers {
       show_browser?: boolean;
       browser_options?: BrowserOptions;
       source_format?: "none" | "inline" | "footnotes" | "json";
+      clean?: boolean;
+      max_length?: number;
     },
     sendProgress?: ProgressCallback,
     signal?: AbortSignal
   ): Promise<ToolResult<AskQuestionResult>> {
     const {
+      clean = false,
+      max_length,
       question,
       session_id,
       notebook_id,
@@ -113,6 +157,7 @@ export class ToolHandlers {
     try {
       // Resolve notebook URL
       let resolvedNotebookUrl = notebook_url;
+      let usedNotebook: { id: string; name: string } | undefined;
 
       if (!resolvedNotebookUrl && notebook_id) {
         const notebook = this.library.incrementUseCount(notebook_id);
@@ -121,6 +166,7 @@ export class ToolHandlers {
         }
 
         resolvedNotebookUrl = notebook.url;
+        usedNotebook = { id: notebook.id, name: notebook.name };
         log.info(`  Resolved notebook from library`);
       } else if (!resolvedNotebookUrl) {
         const active = this.library.getActiveNotebook();
@@ -130,6 +176,7 @@ export class ToolHandlers {
             throw new Error(`Active notebook not found: ${active.id}`);
           }
           resolvedNotebookUrl = notebook.url;
+          usedNotebook = { id: notebook.id, name: notebook.name };
           log.info(`  Using active notebook`);
         }
       }
@@ -151,63 +198,106 @@ export class ToolHandlers {
         overrideHeadless = show_browser;
       }
 
-      return await withRuntimeConfig(effectiveConfig, async () => {
-        // Get or create session (with headless override to handle mode changes)
-        const session = await this.sessionManager.getOrCreateSession(
-          session_id,
-          resolvedNotebookUrl,
-          overrideHeadless,
-          this.ownerId
-        );
+      // One question at a time per notebook: parallel tabs on the same
+      // notebook block each other and end in TIMEOUT.
+      const queueKey = resolvedNotebookUrl ?? "__default__";
+      return await this.runInNotebookQueue(queueKey, () =>
+        withRuntimeConfig(effectiveConfig, async () => {
+          const askWithSession = async (sessionId: string | undefined) => {
+            // Get or create session (with headless override to handle mode changes)
+            const created = await this.sessionManager.getOrCreateSession(
+              sessionId,
+              resolvedNotebookUrl,
+              overrideHeadless,
+              this.ownerId
+            );
 
-        // Progress: Asking question
-        await sendProgress?.("Asking question to NotebookLM...", 2, 5);
+            // Progress: Asking question
+            await sendProgress?.("Asking question to NotebookLM...", 2, 5);
 
-        // Ask the question (pass progress callback)
-        // Asking and citation extraction share one per-session lock so a
-        // concurrent follow-up cannot disturb the citation panel.
-        const citationResult = await session.askAndExtractCitations(
-          question,
-          source_format,
-          sendProgress,
-          signal
-        );
-        const baseAnswer = citationResult.formattedAnswer;
+            try {
+              // Asking and citation extraction share one per-session lock so a
+              // concurrent follow-up cannot disturb the citation panel.
+              const extracted = await created.askAndExtractCitations(
+                question,
+                source_format,
+                sendProgress,
+                signal
+              );
+              return { session: created, citationResult: extracted };
+            } catch (error) {
+              if (isAnswerTimeout(error)) {
+                // A timed-out session is unusable and keeps counting against
+                // the session limit; release it right away.
+                await this.sessionManager
+                  .closeSession(created.sessionId, this.ownerId)
+                  .catch(() => false);
+              }
+              throw error;
+            }
+          };
 
-        const trimmed = baseAnswer.trimEnd();
-        const withReminder = followUpReminderEnabled()
-          ? `${trimmed}${FOLLOW_UP_REMINDER}`
-          : trimmed;
-        const answer = applyAiMarker(withReminder);
+          let outcome: Awaited<ReturnType<typeof askWithSession>>;
+          try {
+            outcome = await askWithSession(session_id);
+          } catch (error) {
+            if (!isAnswerTimeout(error) || signal?.aborted) throw error;
+            log.warning("  ⏱️  Answer timed out; retrying once with a fresh session");
+            try {
+              outcome = await askWithSession(undefined);
+            } catch (retryError) {
+              if (isAnswerTimeout(retryError)) {
+                const stats = this.sessionManager.getStats(this.ownerId);
+                throw new Error(
+                  `${retryError.message} (retried once with a fresh session). ` +
+                    `Open sessions: ${stats.active_sessions}/${stats.max_sessions}. ` +
+                    "Use close_session or list_sessions to free stuck sessions, and ask a shorter, single-claim question.",
+                  { cause: retryError }
+                );
+              }
+              throw retryError;
+            }
+          }
+          const { session, citationResult } = outcome;
+          const baseAnswer = citationResult.formattedAnswer;
 
-        // Get session info
-        const sessionInfo = session.getInfo();
+          const cleaned = clean ? cleanAnswer(baseAnswer) : baseAnswer;
+          const trimmed = (max_length ? truncateAnswer(cleaned, max_length) : cleaned).trimEnd();
+          const withReminder = followUpReminderEnabled()
+            ? `${trimmed}${FOLLOW_UP_REMINDER}`
+            : trimmed;
+          const answer = applyAiMarker(withReminder);
 
-        const result: AskQuestionResult = {
-          status: "success",
-          question,
-          answer,
-          session_id: session.sessionId,
-          notebook_url: session.notebookUrl,
-          session_info: {
-            age_seconds: sessionInfo.age_seconds,
-            message_count: sessionInfo.message_count,
-            last_activity: sessionInfo.last_activity,
-          },
-          _provenance: PROVENANCE,
-          source_format,
-          ...(citationResult.citations.length > 0 && { sources: citationResult.citations }),
-        };
+          // Get session info
+          const sessionInfo = session.getInfo();
 
-        // Progress: Complete
-        await sendProgress?.("Question answered successfully!", 5, 5);
+          const result: AskQuestionResult = {
+            status: "success",
+            question,
+            answer,
+            session_id: session.sessionId,
+            notebook_url: session.notebookUrl,
+            ...(usedNotebook && { notebook_id: usedNotebook.id, notebook_name: usedNotebook.name }),
+            session_info: {
+              age_seconds: sessionInfo.age_seconds,
+              message_count: sessionInfo.message_count,
+              last_activity: sessionInfo.last_activity,
+            },
+            _provenance: PROVENANCE,
+            source_format,
+            ...(citationResult.citations.length > 0 && { sources: citationResult.citations }),
+          };
 
-        log.success(`✅ [TOOL] ask_question completed successfully`);
-        return {
-          success: true,
-          data: result,
-        };
-      });
+          // Progress: Complete
+          await sendProgress?.("Question answered successfully!", 5, 5);
+
+          log.success(`✅ [TOOL] ask_question completed successfully`);
+          return {
+            success: true,
+            data: result,
+          };
+        })
+      );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 

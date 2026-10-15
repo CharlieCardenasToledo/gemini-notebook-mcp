@@ -58,6 +58,9 @@ interface BrowserOperationOptions extends OperationBoundaryOptions {
   retryRecoverable?: boolean;
 }
 
+/** Sessions that never answered a question are reclaimed after this idle time. */
+const EMPTY_SESSION_TIMEOUT_SECONDS = 120;
+
 export class BrowserSession {
   public readonly sessionId: string;
   public readonly notebookUrl: string;
@@ -1060,7 +1063,11 @@ export class BrowserSession {
    * evictable immediately regardless of how recently they were touched.
    */
   isEvictable(timeoutSeconds: number): boolean {
-    return !this.isInitialized() || this.isExpired(timeoutSeconds);
+    return (
+      !this.isInitialized() ||
+      this.isExpired(timeoutSeconds) ||
+      (this.messageCount === 0 && this.isExpired(EMPTY_SESSION_TIMEOUT_SECONDS))
+    );
   }
 
   /**
