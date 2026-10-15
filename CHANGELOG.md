@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-10-15
+
+### Added
+
+- `ask_question` accepts `clean` (strips the "Thoughts" prefix, the closing invitation and emojis) and `max_length` (truncates the returned answer).
+- `ask_question` responses include `notebook_id` and `notebook_name` when the notebook comes from the library or the active selection.
+
+### Changed
+
+- `ask_question` runs one question at a time per notebook; concurrent calls wait in a queue instead of blocking each other.
+- A timed-out answer closes its session and is retried once with a fresh session. The final error reports open sessions and suggests `close_session`.
+- Sessions with no messages are evicted after 120 s of inactivity.
+
 ## [2.3.11] - 2026-08-20
 
 ### Fixed
